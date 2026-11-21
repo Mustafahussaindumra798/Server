@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 1 — authentication and tenant RBAC foundation implemented and CI-verified. No live customer database or identity provider is connected.
+**Current stage:** Milestone 2 — node enrollment and credential lifecycle implemented and CI-verified. No production node agent is connected.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -25,9 +25,19 @@
 - [ ] Provision a live PostgreSQL runtime role and deployment environment
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
-**Verification:** Latest green GitHub Actions run applied both migrations to PostgreSQL 16, passed the PostgreSQL identity/RLS integration script, and passed all 23 Node.js tests. The database was disposable CI infrastructure.
+**Verification:** Latest green GitHub Actions run applied migrations 001–003 to PostgreSQL 16, passed PostgreSQL identity/RLS and node-enrollment integration checks, and passed all 27 Node.js tests. The database was disposable CI infrastructure.
 
-## Milestone 2 — Node agent
+## Milestone 2 — Node enrollment and agent
+- [x] One-time, high-entropy enrollment token issuance with configurable expiry
+- [x] Store only SHA-256 enrollment-token hashes
+- [x] Atomic, single-use enrollment consumption in PostgreSQL
+- [x] Pending node registration with validated platform and capabilities
+- [x] Issue per-node 90-day credential; store only its SHA-256 hash
+- [x] Return node credential secret only once at enrollment
+- [x] Tenant-scoped Owner/Admin credential revocation and audit events
+- [x] Revoke node status when its last active credential is revoked
+- [x] PostgreSQL integration coverage for successful, expired and replayed enrollment tokens
+- [x] API tests for token permissions, token hashing, enrollment response and credential revocation
 - [ ] Define supported OS/runtime matrix
 - [ ] Build outbound authenticated enrollment and heartbeat
 - [ ] Add node capability and resource reporting
