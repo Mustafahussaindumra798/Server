@@ -35,6 +35,7 @@ The dashboard runs without these settings. Authenticated `/api/v1` routes return
 - Authentication and RBAC: [docs/authentication-rbac.md](docs/authentication-rbac.md)
 - [System architecture](docs/architecture.md)
 - [Control-plane backend design](docs/control-plane-design.md)
+- [Node OS/runtime support matrix](docs/node-runtime-support.md)
 - [Delivery roadmap](docs/roadmap.md)
 
 Node enrollment, heartbeat processing, scheduling, agent communication, real workload execution and production hosting are not implemented yet.

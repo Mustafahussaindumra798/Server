@@ -38,7 +38,7 @@
 - [x] Revoke node status when its last active credential is revoked
 - [x] PostgreSQL integration coverage for successful, expired and replayed enrollment tokens
 - [x] API tests for token permissions, token hashing, enrollment response and credential revocation
-- [ ] Define supported OS/runtime matrix
+- [x] Define supported OS/runtime matrix and qualification gates (Linux first; Android/Termux best-effort; Windows/macOS planned)
 - [ ] Build outbound authenticated enrollment and heartbeat
 - [ ] Add node capability and resource reporting
 - [ ] Add safe command allowlist and job reconciliation

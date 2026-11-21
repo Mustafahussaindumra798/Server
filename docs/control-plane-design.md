@@ -197,7 +197,11 @@ Treat Android/Termux as an experimental, best-effort node profile:
 
 A standard Linux server is the first production-oriented node target. An Android phone remains an independent node; multiple phones do not become one shared-memory machine.
 
-## 11. Implementation sequence (not part of this design-only task)
+## 11. Node OS/runtime support policy
+
+The intended platform tiers, CPU architectures, runtime baselines, lifecycle constraints and qualification gates are maintained in [Node OS/runtime support matrix](node-runtime-support.md). Linux x86_64/aarch64 is the first production-oriented implementation target; Android/Termux arm64 is best-effort only. Windows and macOS remain planned until separately qualified. A listed target is not a claim of implemented or certified support.
+
+## 12. Implementation sequence (not part of this design-only task)
 
 1. Select hosting/runtime and PostgreSQL provider after a deployment/security review.
 2. Create migrations and tenant-scoped repository layer.
@@ -208,7 +212,7 @@ A standard Linux server is the first production-oriented node target. An Android
 7. Add integration, abuse, revocation, replay, concurrency and failure tests.
 8. Only then implement real workload execution and scheduling.
 
-## 12. Acceptance criteria before real devices connect
+## 13. Acceptance criteria before real devices connect
 
 - A user from tenant A cannot read or mutate tenant B data.
 - Enrollment tokens are single-use, expire, and cannot be replayed.
