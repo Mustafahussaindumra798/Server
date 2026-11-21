@@ -24,7 +24,7 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $tenant_check$
 BEGIN
   RETURN EXISTS (
     SELECT 1
@@ -34,7 +34,7 @@ BEGIN
       AND membership.status = 'active'
   );
 END
-$;
+$tenant_check$;
 
 CREATE OR REPLACE FUNCTION app_private.can_manage_tenant(target_tenant_id uuid)
 RETURNS boolean
@@ -42,7 +42,7 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $tenant_check$
 BEGIN
   RETURN EXISTS (
     SELECT 1
@@ -53,7 +53,7 @@ BEGIN
       AND membership.role IN ('owner', 'admin')
   );
 END
-$;
+$tenant_check$;
 
 CREATE OR REPLACE FUNCTION app_private.is_current_node(target_node_id uuid)
 RETURNS boolean
