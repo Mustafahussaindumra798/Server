@@ -76,8 +76,39 @@ Create a dedicated `cloudexify_runtime` role outside the application migration. 
 ```sql
 GRANT CONNECT ON DATABASE cloudexify TO cloudexify_runtime;
 GRANT USAGE ON SCHEMA public, app_private TO cloudexify_runtime;
-GRANT SELECT ON users, tenants, tenant_memberships, applications, deployments TO cloudexify_runtime;
-GRANT INSERT ON tenant_memberships, applications, deployments, audit_events TO cloudexify_runtime;
+GRANT SELECT ON users, tenants, tenant_memberships, applications, deployments, nodes, node_credentials TO cloudexify_runtime;
+GRANT INSERT ON tenant_memberships, applications, deployments, audit_events, enrollment_tokens TO cloudexify_runtime;
+GRANT UPDATE ON nodes, node_credentials TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;
 ```
 
 Replace `cloudexify` with the actual database name. Do not grant broad UPDATE or DELETE access. Extend privileges only alongside a reviewed API feature and its tests.
+
+
+## Node enrollment and credential lifecycle
+
+Owner/Admin creates a one-time enrollment token:
+
+    POST /api/v1/tenants/:tenantId/enrollment-tokens
+
+Optional body: `{"expires_in_minutes":30}` (5–1440 minutes). The raw token is returned once; only its SHA-256 hash is stored.
+
+The node enrolls using:
+
+    POST /api/v1/nodes/enroll
+
+Body: `{"enrollment_token":"...","name":"edge-01","platform":"android","architecture":"aarch64","agent_version":"0.1.0","capabilities":{}}`
+
+The one-time token is the bootstrap proof. PostgreSQL atomically consumes it, creates a pending node, issues a unique 90-day credential and writes an audit event. The credential secret is returned once; only its SHA-256 hash is stored. Never log or persist the secret in plaintext. Credential-authenticated heartbeat traffic is a later milestone.
+
+Owner/Admin revokes a credential using:
+
+    POST /api/v1/tenants/:tenantId/nodes/:nodeId/credentials/:credentialId/revoke
+
+The operation is tenant-scoped and audited. If no other active, unexpired credential remains, the node status becomes `revoked`.
+
+Apply migration 003 after 001 and 002. Grant the runtime role the narrow permissions it needs, including:
+
+    GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;
+
+The function is SECURITY DEFINER with a fixed search_path and is not executable by PUBLIC. Rate limiting and credential-authenticated node APIs remain future work.

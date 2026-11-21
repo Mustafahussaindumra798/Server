@@ -4,6 +4,7 @@ export const PERMISSIONS = Object.freeze({
   read: TENANT_ROLES,
   manageApplications: ["owner", "admin"],
   manageMembers: ["owner", "admin"],
+  manageNodes: ["owner", "admin"],
   operateDeployments: ["owner", "admin", "operator"]
 });
 

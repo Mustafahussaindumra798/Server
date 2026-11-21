@@ -42,3 +42,23 @@ export async function withUserTransaction(pool, identitySubject, callback) {
     client.release();
   }
 }
+
+
+export async function withNodeEnrollment(pool, enrollment) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const result = await client.query("SELECT * FROM app_private.enroll_node($1, $2, $3, $4, $5, $6::jsonb, $7)", [
+      enrollment.tokenHash, enrollment.name, enrollment.platform, enrollment.architecture,
+      enrollment.agentVersion, JSON.stringify(enrollment.capabilities), enrollment.credentialHash
+    ]);
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return result.rows[0] || null;
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}

@@ -77,6 +77,32 @@ VALUES
   ('20000000-0000-4000-8000-000000000001', 'user', '10000000-0000-4000-8000-000000000001', 'fixture.created', 'tenant'),
   ('20000000-0000-4000-8000-000000000002', 'user', '10000000-0000-4000-8000-000000000002', 'fixture.created', 'tenant');
 
+INSERT INTO enrollment_tokens (tenant_id, token_hash, expires_at, created_by)
+VALUES ('20000000-0000-4000-8000-000000000001', repeat('c',64), now()+interval '10 minutes', '10000000-0000-4000-8000-000000000001');
+DO $enrollment_test$
+DECLARE enrolled record; second_attempt integer; stored_hash text;
+BEGIN
+  SELECT * INTO enrolled FROM app_private.enroll_node(repeat('c',64),'enrolled-node','android','aarch64','test-agent','{"memory_mb":2048}'::jsonb,repeat('d',64));
+  IF enrolled.node_id IS NULL OR enrolled.tenant_id <> '20000000-0000-4000-8000-000000000001' THEN RAISE EXCEPTION 'Valid token did not enroll node'; END IF;
+  IF (SELECT status FROM nodes WHERE id=enrolled.node_id) <> 'pending' THEN RAISE EXCEPTION 'New node must be pending'; END IF;
+  SELECT secret_hash INTO stored_hash FROM node_credentials WHERE id=enrolled.credential_id;
+  IF stored_hash <> repeat('d',64) THEN RAISE EXCEPTION 'Credential verifier not stored'; END IF;
+  SELECT count(*) INTO second_attempt FROM app_private.enroll_node(repeat('c',64),'duplicate-node','android','aarch64',NULL,'{}'::jsonb,repeat('e',64));
+  IF second_attempt <> 0 THEN RAISE EXCEPTION 'Enrollment token accepted more than once'; END IF;
+  IF (SELECT count(*) FROM nodes WHERE tenant_id=enrolled.tenant_id AND name IN ('enrolled-node','duplicate-node')) <> 1 THEN RAISE EXCEPTION 'Single-use token created multiple nodes'; END IF;
+END
+$enrollment_test$;
+INSERT INTO enrollment_tokens (tenant_id, token_hash, expires_at, created_by)
+VALUES ('20000000-0000-4000-8000-000000000001', repeat('f',64), now()+interval '1 second', '10000000-0000-4000-8000-000000000001');
+SELECT pg_sleep(1.1);
+DO $expired_enrollment$
+DECLARE attempt_count integer;
+BEGIN
+  SELECT count(*) INTO attempt_count FROM app_private.enroll_node(repeat('f',64),'expired-node','linux','x86_64',NULL,'{}'::jsonb,repeat('1',64));
+  IF attempt_count <> 0 THEN RAISE EXCEPTION 'Expired enrollment token accepted'; END IF;
+END
+$expired_enrollment$;
+
 -- Verify tenant-aware composite foreign keys reject a node from another tenant.
 DO $$
 BEGIN
@@ -121,6 +147,7 @@ CREATE ROLE cloudexify_test_runtime LOGIN PASSWORD 'test-only-password'
   NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT;
 GRANT USAGE ON SCHEMA public, app_private TO cloudexify_test_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cloudexify_test_runtime;
+GRANT EXECUTE ON FUNCTION app_private.enroll_node(text,text,text,text,text,jsonb,text) TO cloudexify_test_runtime;
 
 SET ROLE cloudexify_test_runtime;
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { createApiHandler } from "../src/api.mjs";
 
 const issuer = "https://identity.example.test/";
@@ -40,6 +40,10 @@ function fakePool(role = "viewer") {
       if (query.startsWith("INSERT INTO applications")) {
         return { rows: [{ id: appId, tenant_id: tenantId, name: params[1], desired_state: "stopped", created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
       }
+      if (query.startsWith("INSERT INTO enrollment_tokens")) return { rows: [{ id: "70000000-0000-4000-8000-000000000001", expires_at: new Date(Date.now() + 1800000).toISOString() }], rowCount: 1 };
+      if (query.startsWith("UPDATE node_credentials")) return { rows: [{ id: "80000000-0000-4000-8000-000000000001", revoked_at: new Date().toISOString() }], rowCount: 1 };
+      if (query.startsWith("SELECT count(*)::integer AS active_count")) return { rows: [{ active_count: 0 }], rowCount: 1 };
+      if (query.startsWith("SELECT * FROM app_private.enroll_node")) return { rows: [{ node_id: "30000000-0000-4000-8000-000000000001", tenant_id: tenantId, credential_id: "80000000-0000-4000-8000-000000000001" }], rowCount: 1 };
       if (query.startsWith("INSERT INTO audit_events")) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
@@ -111,4 +115,57 @@ test("API rejects an unapproved browser origin", async (t) => {
     headers: { origin: "https://attacker.example", authorization: "Bearer " + makeToken() }
   });
   assert.equal(response.status, 403);
+});
+
+
+test("owner creates a hashed, time-limited enrollment token", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/enrollment-tokens", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ expires_in_minutes: 45 })
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO enrollment_tokens"));
+  assert.match(insert.params[1], /^[a-f0-9]{64}$/);
+  assert.equal(insert.params[1], createHash("sha256").update(payload.enrollment_token.token).digest("hex"));
+  assert.equal(insert.params[2], 45);
+});
+
+test("viewer cannot create node enrollment tokens", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/enrollment-tokens", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" }, body: "{}"
+  });
+  assert.equal(response.status, 403);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO enrollment_tokens")), false);
+});
+
+test("node enrollment hashes bootstrap token and returns one-time credential", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const token = "single-use-bootstrap-token";
+  const response = await fetch(api.origin + "/api/v1/nodes/enroll", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enrollment_token: token, name: "android-edge-01", platform: "android", architecture: "aarch64", capabilities: { memory_mb: 4096 } })
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  assert.equal(payload.node.status, "pending");
+  const call = api.pool.calls.find((item) => item.sql.startsWith("SELECT * FROM app_private.enroll_node"));
+  assert.equal(call.params[0], createHash("sha256").update(token).digest("hex"));
+  assert.match(call.params[6], /^[a-f0-9]{64}$/);
+  assert.notEqual(call.params[6], payload.credential.secret);
+});
+
+test("owner can revoke a node credential and revoke its node when no active credential remains", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const nodeId = "30000000-0000-4000-8000-000000000001";
+  const credentialId = "80000000-0000-4000-8000-000000000001";
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/" + nodeId + "/credentials/" + credentialId + "/revoke", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken() }
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).node_status, "revoked");
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET status = 'revoked'")), true);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.credential.revoked"), true);
 });

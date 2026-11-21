@@ -21,6 +21,7 @@ Health check: `GET /api/health`.
 Apply migrations in order:
 1. `database/migrations/001_initial_schema.sql`
 2. `database/migrations/002_auth_identity_context.sql`
+3. `database/migrations/003_node_enrollment.sql`
 
 Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
 
@@ -29,6 +30,7 @@ The dashboard runs without these settings. Authenticated `/api/v1` routes return
 ## Database and architecture
 - Schema: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
 - Authentication identity policy: [database/migrations/002_auth_identity_context.sql](database/migrations/002_auth_identity_context.sql)
+- Node enrollment function: [database/migrations/003_node_enrollment.sql](database/migrations/003_node_enrollment.sql)
 - Database notes: [docs/database.md](docs/database.md)
 - Authentication and RBAC: [docs/authentication-rbac.md](docs/authentication-rbac.md)
 - [System architecture](docs/architecture.md)

@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
-import { withUserTransaction } from "./db/pool.mjs";
+import { withNodeEnrollment, withUserTransaction } from "./db/pool.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -128,6 +128,26 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         error.status = 405;
         throw error;
       }
+      if (url.pathname === "/api/v1/nodes/enroll" && request.method === "POST") {
+        if (!pool) { const error = new Error("Node enrollment is not configured with a database."); error.status = 503; throw error; }
+        const body = await readJson(request);
+        const token = requireText(body.enrollment_token, "enrollment_token", 256);
+        const name = requireText(body.name, "name", 100);
+        const platform = requireText(body.platform, "platform", 20).toLowerCase();
+        const architecture = requireText(body.architecture, "architecture", 40);
+        if (!["linux", "android", "windows", "macos", "other"].includes(platform)) { const error = new Error("Unsupported node platform."); error.status = 400; throw error; }
+        const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
+        const capabilities = body.capabilities == null ? {} : body.capabilities;
+        if (!capabilities || Array.isArray(capabilities) || typeof capabilities !== "object" || Buffer.byteLength(JSON.stringify(capabilities), "utf8") > 8192) { const error = new Error("capabilities must be a JSON object of at most 8 KiB."); error.status = 400; throw error; }
+        const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
+        const credential = randomBytes(32).toString("base64url");
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const enrolled = await withNodeEnrollment(pool, { tokenHash, name, platform, architecture, agentVersion, capabilities, credentialHash });
+        if (!enrolled) { const error = new Error("Enrollment token is invalid, expired or already used."); error.status = 401; throw error; }
+        send(response, 201, { node: { id: enrolled.node_id, tenant_id: enrolled.tenant_id, name, platform, architecture, status: "pending" }, credential: { id: enrolled.credential_id, secret: credential, expires_in_days: 90 } }, requestId);
+        return true;
+      }
+
       if (!pool) {
         const error = new Error("Authentication API is not configured with a database.");
         error.status = 503;
@@ -141,7 +161,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token);
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members)$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes)(?:\/([0-9a-f-]{36})\/credentials\/([0-9a-f-]{36})\/revoke)?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -208,6 +228,29 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           );
           await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState });
           return { status: 201, body: { deployment: created.rows[0] } };
+        }
+
+        if (resource === "enrollment-tokens" && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const body = await readJson(request);
+          const lifetime = body.expires_in_minutes == null ? 30 : body.expires_in_minutes;
+          if (!Number.isInteger(lifetime) || lifetime < 5 || lifetime > 1440) { const error = new Error("expires_in_minutes must be an integer between 5 and 1440."); error.status = 400; throw error; }
+          const rawToken = randomBytes(32).toString("base64url");
+          const tokenHash = createHash("sha256").update(rawToken, "utf8").digest("hex");
+          const created = await client.query("INSERT INTO enrollment_tokens (tenant_id, token_hash, expires_at, created_by) VALUES ($1, $2, now() + ($3 * interval '1 minute'), $4) RETURNING id, expires_at", [tenantId, tokenHash, lifetime, user.id]);
+          await audit(client, tenantId, user.id, "node.enrollment_token.created", "enrollment_token", created.rows[0].id, { expires_in_minutes: lifetime });
+          return { status: 201, body: { enrollment_token: { id: created.rows[0].id, token: rawToken, expires_at: created.rows[0].expires_at } } };
+        }
+
+        if (resource === "nodes" && route[3] && route[4] && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const revoked = await client.query("UPDATE node_credentials AS credential SET revoked_at = now() FROM nodes AS node WHERE credential.id = $1 AND credential.node_id = $2 AND node.id = $2 AND node.tenant_id = $3 AND credential.revoked_at IS NULL RETURNING credential.id, credential.revoked_at", [route[4], route[3], tenantId]);
+          if (!revoked.rows[0]) { const error = new Error("Node credential not found or already revoked."); error.status = 404; throw error; }
+          const active = await client.query("SELECT count(*)::integer AS active_count FROM node_credentials WHERE node_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())", [route[3]]);
+          const nodeStatus = Number(active.rows[0]?.active_count || 0) === 0 ? "revoked" : "unchanged";
+          if (nodeStatus === "revoked") await client.query("UPDATE nodes SET status = 'revoked' WHERE id = $1 AND tenant_id = $2", [route[3], tenantId]);
+          await audit(client, tenantId, user.id, "node.credential.revoked", "node_credential", revoked.rows[0].id, { node_id: route[3] });
+          return { status: 200, body: { credential: { id: revoked.rows[0].id, revoked_at: revoked.rows[0].revoked_at }, node_status: nodeStatus } };
         }
 
         if (resource === "members" && request.method === "GET") {
