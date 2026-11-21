@@ -22,7 +22,7 @@ const state = {
 };
 const $ = (selector) => document.querySelector(selector);
 function renderNodes(){
-  $("#node-table").innerHTML = state.nodes.slice(0,4).map(n => `<tr><td><div class="node-name"><span class="node-icon">${n.icon}</span><span>${escapeHtml(n.name)}<small>${escapeHtml(n.id)}</small></span></div></td><td>${escapeHtml(n.platform)}</td><td><span class="resource">${escapeHtml(n.resources)}</span></td><td><span class="status ${n.status==="Online"?"":"offline"}">${n.status}</span></td><td>···</td></tr>`).join("");
+  $("#node-table").innerHTML = state.nodes.map(n => `<tr><td><div class="node-name"><span class="node-icon">${n.icon}</span><span>${escapeHtml(n.name)}<small>${escapeHtml(n.id)}</small></span></div></td><td>${escapeHtml(n.platform)}</td><td><span class="resource">${escapeHtml(n.resources)}</span></td><td><span class="status ${n.status==="Online"?"":"offline"}">${n.status}</span></td><td>···</td></tr>`).join("");
   $("#metric-nodes").innerHTML = `${state.nodes.filter(n=>n.status==="Online").length} <small>/ ${state.nodes.length}</small>`;
   $("#nav-node-count").textContent=state.nodes.length;
 }
@@ -62,7 +62,7 @@ $("#node-form").addEventListener("submit",registerNode);
 $("#add-node-btn").addEventListener("click",()=>$("#node-dialog").showModal());
 $("#dismiss-notice").addEventListener("click",()=>$(".notice").remove());
 $("#menu-btn").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));
-document.querySelectorAll("[data-page]").forEach(link=>link.addEventListener("click",()=>navigate(link.dataset.page)));
+document.querySelectorAll("[data-page]").forEach(link=>link.addEventListener("click",event=>{event.preventDefault();const page=link.dataset.page;history.pushState({page},"","#"+page);navigate(page);}));
 document.querySelectorAll("[data-goto]").forEach(button=>button.addEventListener("click",()=>navigate(button.dataset.goto)));
-window.addEventListener("hashchange",()=>navigate(location.hash.slice(1)||"overview"));
+window.addEventListener("popstate",()=>navigate(location.hash.slice(1)||"overview"));
 renderNodes();renderApps();renderActivity();
