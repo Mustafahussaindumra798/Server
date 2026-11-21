@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101827"><meta name="description" content="Cloudexify multi-device hosting control plane">
+  <title>Cloudexify Server — Control Plane</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#"><span class="brand-mark">C</span><span><b>cloudexify</b><small>SERVER PLATFORM</small></span></a>
+    <div class="workspace"><span class="workspace-dot"></span><span><b>Infrastructure</b><small>Development environment</small></span><span class="chevron">⌄</span></div>
+    <nav class="nav">
+      <p class="nav-label">WORKSPACE</p>
+      <a class="nav-link active" href="#overview" data-page="overview"><span>▦</span> Overview</a>
+      <a class="nav-link" href="#nodes" data-page="nodes"><span>▤</span> Compute nodes <em id="nav-node-count">3</em></a>
+      <a class="nav-link" href="#applications" data-page="applications"><span>▣</span> Applications</a>
+      <a class="nav-link" href="#deployments" data-page="deployments"><span>⇧</span> Deployments</a>
+      <p class="nav-label">MANAGEMENT</p>
+      <a class="nav-link" href="#network" data-page="network"><span>⌁</span> Network & routing</a>
+      <a class="nav-link" href="#activity" data-page="activity"><span>◷</span> Activity log</a>
+      <a class="nav-link" href="#settings" data-page="settings"><span>⚙</span> Settings</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="plan-card"><span class="plan-icon">✦</span><b>Prototype mode</b><p>Actions are simulated. No workloads are running on real devices.</p><span class="plan-status"><i></i> Local demo</span></div><div class="profile"><div class="avatar">MK</div><span><b>Cloudexify Admin</b><small>Administrator</small></span><span class="dots">···</span></div></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><button class="menu-btn" id="menu-btn" aria-label="Toggle navigation">☰</button><div class="breadcrumb">Workspace <span>/</span> <b id="breadcrumb-page">Overview</b></div><div class="top-actions"><span class="env-pill"><i></i> SIMULATED</span><button class="icon-btn" aria-label="Notifications">♧<i class="notify-dot"></i></button><div class="top-avatar">MK</div></div></header>
+    <div class="content">
+      <section class="page-heading"><div><div class="eyebrow">CONTROL PLANE <span>•</span> OVERVIEW</div><h1 id="page-title">Infrastructure overview</h1><p id="page-subtitle">Monitor your devices and hosted applications from one place.</p></div><button class="primary-btn" id="add-node-btn"><span>＋</span> Register a node</button></section>
+      <div class="notice"><span class="notice-icon">ⓘ</span><div><b>Simulation environment</b><p>This dashboard uses sample data. Registering nodes and deploying apps here will not access or modify real devices.</p></div><button class="notice-close" aria-label="Dismiss notice" id="dismiss-notice">×</button></div>
+      <section class="metric-grid">
+        <article class="metric-card"><div class="metric-top"><span>Connected nodes</span><span class="metric-icon purple">▤</span></div><div class="metric-value" id="metric-nodes">3 <small>/ 4</small></div><div class="metric-foot"><span class="positive">↑ 1 node</span> in this demo</div><div class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+        <article class="metric-card"><div class="metric-top"><span>Running applications</span><span class="metric-icon blue">▣</span></div><div class="metric-value" id="metric-apps">4 <small>/ 6</small></div><div class="metric-foot"><span class="positive">↑ 2.4%</span> simulated availability</div><div class="metric-progress"><span style="width:66%"></span></div></article>
+        <article class="metric-card"><div class="metric-top"><span>CPU allocation</span><span class="metric-icon orange">⌁</span></div><div class="metric-value">38<small>%</small></div><div class="metric-foot">Across available demo nodes</div><div class="metric-progress orange-bar"><span style="width:38%"></span></div></article>
+        <article class="metric-card"><div class="metric-top"><span>Memory allocation</span><span class="metric-icon green">▥</span></div><div class="metric-value">5.2 <small>GB</small></div><div class="metric-foot">Of 12 GB sample capacity</div><div class="metric-progress green-bar"><span style="width:43%"></span></div></article>
+      </section>
+      <section class="content-grid">
+        <article class="panel node-panel" id="nodes-panel"><div class="panel-heading"><div><h2>Compute nodes</h2><p>Devices registered with your control plane</p></div><button class="text-btn" data-goto="nodes">View all <span>→</span></button></div><div class="table-wrap"><table><thead><tr><th>NODE</th><th>PLATFORM</th><th>RESOURCES</th><th>STATUS</th><th></th></tr></thead><tbody id="node-table"></tbody></table></div></article>
+        <article class="panel activity-panel"><div class="panel-heading"><div><h2>Recent activity</h2><p>Latest platform events</p></div><button class="more-btn" aria-label="More activity">···</button></div><div class="activity-list" id="activity-list"></div><button class="activity-link" data-goto="activity">View activity log →</button></article>
+      </section>
+      <section class="panel apps-panel"><div class="panel-heading"><div><h2>Hosted applications</h2><p>Workloads scheduled across your devices</p></div><button class="text-btn" data-goto="applications">Manage apps <span>→</span></button></div><div class="app-grid" id="app-grid"></div></section>
+      <footer><span>© 2026 Cloudexify. Code Your Future.</span><span>Control plane prototype <b>v0.1.0</b></span></footer>
+    </div>
+  </main>
+</div>
+<dialog id="node-dialog" class="modal"><form method="dialog" id="node-form"><div class="modal-head"><div><span class="eyebrow">INFRASTRUCTURE</span><h2>Register a node</h2></div><button class="close-btn" value="cancel" aria-label="Close">×</button></div><p class="modal-copy">Add a sample device to explore node management. This does not install an agent or connect a real device.</p><label>Node name<input name="name" required maxlength="32" placeholder="e.g. android-node-04"></label><label>Platform<select name="platform"><option>Android / Termux</option><option>Ubuntu Linux</option><option>Windows</option><option>macOS</option></select></label><label>Available memory<select name="memory"><option>2 GB</option><option>4 GB</option><option>8 GB</option><option>16 GB</option></select></label><div class="modal-actions"><button class="secondary-btn" value="cancel">Cancel</button><button class="primary-btn" id="register-submit" value="default">Add sample node</button></div></form></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/app.js" defer></script>
+</body></html>
