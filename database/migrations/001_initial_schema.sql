@@ -20,36 +20,40 @@ $$;
 
 CREATE OR REPLACE FUNCTION app_private.is_tenant_member(target_tenant_id uuid)
 RETURNS boolean
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $$
-  SELECT EXISTS (
+AS $
+BEGIN
+  RETURN EXISTS (
     SELECT 1
     FROM public.tenant_memberships AS membership
     WHERE membership.tenant_id = target_tenant_id
       AND membership.user_id = app_private.current_user_id()
       AND membership.status = 'active'
-  )
-$$;
+  );
+END
+$;
 
 CREATE OR REPLACE FUNCTION app_private.can_manage_tenant(target_tenant_id uuid)
 RETURNS boolean
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $$
-  SELECT EXISTS (
+AS $
+BEGIN
+  RETURN EXISTS (
     SELECT 1
     FROM public.tenant_memberships AS membership
     WHERE membership.tenant_id = target_tenant_id
       AND membership.user_id = app_private.current_user_id()
       AND membership.status = 'active'
       AND membership.role IN ('owner', 'admin')
-  )
-$$;
+  );
+END
+$;
 
 CREATE OR REPLACE FUNCTION app_private.is_current_node(target_node_id uuid)
 RETURNS boolean
