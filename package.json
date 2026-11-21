@@ -1,6 +1,6 @@
 {
   "name": "cloudexify-server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,5 +10,8 @@
     "start": "node server.mjs",
     "dev": "node server.mjs",
     "test": "node --test"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
   }
 }

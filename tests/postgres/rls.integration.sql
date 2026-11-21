@@ -124,6 +124,28 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cloudexif
 
 SET ROLE cloudexify_test_runtime;
 
+-- Verified external identity can resolve exactly one pre-provisioned user row.
+BEGIN;
+SELECT set_config('app.identity_subject', 'oidc|tenant-a-owner', true);
+SELECT set_config('app.user_id', '', true);
+DO $
+BEGIN
+  IF (SELECT count(*) FROM users) <> 1 THEN
+    RAISE EXCEPTION 'Verified identity context did not resolve exactly one user';
+  END IF;
+  IF (SELECT identity_subject FROM users LIMIT 1) <> 'oidc|tenant-a-owner' THEN
+    RAISE EXCEPTION 'Identity context resolved the wrong user';
+  END IF;
+END $;
+COMMIT;
+
+DO $
+BEGIN
+  IF COALESCE(current_setting('app.identity_subject', true), '') <> '' THEN
+    RAISE EXCEPTION 'Identity context leaked beyond its transaction';
+  END IF;
+END $;
+
 BEGIN;
 SELECT set_config('app.user_id', '10000000-0000-4000-8000-000000000001', true);
 SELECT set_config('app.node_id', '', true);

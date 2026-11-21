@@ -1,0 +1,264 @@
+import { randomUUID } from "node:crypto";
+import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
+import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
+import { withUserTransaction } from "./db/pool.mjs";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_BODY_BYTES = 64 * 1024;
+
+function send(response, status, payload, requestId, extraHeaders = {}) {
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-request-id": requestId,
+    ...extraHeaders
+  });
+  response.end(JSON.stringify(payload));
+}
+
+async function readJson(request) {
+  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    const error = new Error("Content-Type must be application/json.");
+    error.status = 415;
+    throw error;
+  }
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > MAX_BODY_BYTES) {
+      const error = new Error("Request body is too large.");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  let value;
+  try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  catch { const error = new Error("Request body must be valid JSON."); error.status = 400; throw error; }
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    const error = new Error("Request body must be a JSON object.");
+    error.status = 400;
+    throw error;
+  }
+  return value;
+}
+
+function requireUuid(value, field) {
+  if (typeof value !== "string" || !UUID.test(value)) {
+    const error = new Error(field + " must be a valid UUID.");
+    error.status = 400;
+    throw error;
+  }
+  return value;
+}
+
+function requireText(value, field, max = 120) {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > max) {
+    const error = new Error(field + " is required and must be at most " + max + " characters.");
+    error.status = 400;
+    throw error;
+  }
+  return value.trim();
+}
+
+function audit(client, tenantId, userId, action, resourceType, resourceId, metadata = {}) {
+  return client.query(
+    "INSERT INTO audit_events (tenant_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json) VALUES ($1, 'user', $2, $3, $4, $5, $6::jsonb)",
+    [tenantId, userId, action, resourceType, resourceId, JSON.stringify(metadata)]
+  );
+}
+
+async function getMembership(client, tenantId, userId) {
+  const result = await client.query(
+    "SELECT membership.role, tenant.status AS tenant_status FROM tenant_memberships AS membership JOIN tenants AS tenant ON tenant.id = membership.tenant_id WHERE membership.tenant_id = $1 AND membership.user_id = $2 AND membership.status = 'active' AND tenant.status = 'active' LIMIT 1",
+    [tenantId, userId]
+  );
+  if (!result.rows[0]) {
+    const error = new Error("Tenant not found.");
+    error.status = 404;
+    throw error;
+  }
+  return result.rows[0].role;
+}
+
+export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
+  let verifyAccessToken;
+  try {
+    verifyAccessToken = createOidcVerifier({
+      issuer: env.OIDC_ISSUER,
+      audience: env.OIDC_AUDIENCE,
+      jwksUri: env.OIDC_JWKS_URI,
+      fetchImpl
+    });
+  } catch {
+    verifyAccessToken = null;
+  }
+  const allowedOrigins = new Set(String(env.CORS_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean));
+
+  return async function handleApi(request, response) {
+    const url = new URL(request.url || "/", "http://localhost");
+    if (!url.pathname.startsWith("/api/v1/")) return false;
+    const requestId = randomUUID();
+    const origin = request.headers.origin;
+    if (origin) {
+      if (!allowedOrigins.has(origin)) {
+        send(response, 403, { error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin is not allowed.", request_id: requestId } }, requestId);
+        return true;
+      }
+      response.setHeader("access-control-allow-origin", origin);
+      response.setHeader("vary", "Origin");
+    }
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, {
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "Authorization, Content-Type, X-Request-ID",
+        "access-control-max-age": "600",
+        "vary": "Origin"
+      });
+      response.end();
+      return true;
+    }
+
+    try {
+      if (!["GET", "POST"].includes(request.method || "")) {
+        const error = new Error("Method not allowed.");
+        error.status = 405;
+        throw error;
+      }
+      if (!pool) {
+        const error = new Error("Authentication API is not configured with a database.");
+        error.status = 503;
+        throw error;
+      }
+      if (!verifyAccessToken) {
+        const error = new Error("OIDC authentication is not configured.");
+        error.status = 503;
+        throw error;
+      }
+      const token = getBearerToken(request);
+      const principal = await verifyAccessToken(token);
+      const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members)$/i);
+
+        if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
+          const memberships = await client.query(
+            "SELECT tenant.id, tenant.name, tenant.slug, membership.role FROM tenant_memberships AS membership JOIN tenants AS tenant ON tenant.id = membership.tenant_id WHERE membership.user_id = $1 AND membership.status = 'active' AND tenant.status = 'active' ORDER BY tenant.name",
+            [user.id]
+          );
+          return { status: 200, body: { user: { id: user.id, email: user.email, display_name: user.display_name }, tenants: memberships.rows } };
+        }
+
+        if (url.pathname === "/api/v1/tenants" && request.method === "GET") {
+          const tenants = await client.query(
+            "SELECT tenant.id, tenant.name, tenant.slug, tenant.status, membership.role FROM tenant_memberships AS membership JOIN tenants AS tenant ON tenant.id = membership.tenant_id WHERE membership.user_id = $1 AND membership.status = 'active' AND tenant.status = 'active' ORDER BY tenant.name",
+            [user.id]
+          );
+          return { status: 200, body: { tenants: tenants.rows } };
+        }
+
+        if (!route || !UUID.test(route[1])) {
+          const error = new Error("API route not found.");
+          error.status = 404;
+          throw error;
+        }
+
+        const tenantId = route[1];
+        const resource = route[2];
+        const role = await getMembership(client, tenantId, user.id);
+
+        if (resource === "applications" && request.method === "GET") {
+          requirePermission(role, "read");
+          const applications = await client.query(
+            "SELECT id, tenant_id, name, desired_state, created_by, created_at, updated_at FROM applications WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            [tenantId]
+          );
+          return { status: 200, body: { applications: applications.rows } };
+        }
+
+        if (resource === "applications" && request.method === "POST") {
+          requirePermission(role, "manageApplications");
+          const body = await readJson(request);
+          const name = requireText(body.name, "name", 100);
+          const created = await client.query(
+            "INSERT INTO applications (tenant_id, name, created_by) VALUES ($1, $2, $3) RETURNING id, tenant_id, name, desired_state, created_by, created_at",
+            [tenantId, name, user.id]
+          );
+          await audit(client, tenantId, user.id, "application.created", "application", created.rows[0].id);
+          return { status: 201, body: { application: created.rows[0] } };
+        }
+
+        if (resource === "deployments" && request.method === "POST") {
+          requirePermission(role, "operateDeployments");
+          const body = await readJson(request);
+          const applicationId = requireUuid(body.application_id, "application_id");
+          const targetNodeId = body.target_node_id == null ? null : requireUuid(body.target_node_id, "target_node_id");
+          const desiredState = body.desired_state;
+          if (!["running", "stopped"].includes(desiredState)) {
+            const error = new Error("desired_state must be running or stopped.");
+            error.status = 400;
+            throw error;
+          }
+          const revision = await client.query("SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM deployments WHERE tenant_id = $1 AND application_id = $2", [tenantId, applicationId]);
+          const created = await client.query(
+            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, created_by, created_at",
+            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, user.id]
+          );
+          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState });
+          return { status: 201, body: { deployment: created.rows[0] } };
+        }
+
+        if (resource === "members" && request.method === "GET") {
+          requirePermission(role, "read");
+          const members = await client.query(
+            "SELECT user_id, role, status, created_at FROM tenant_memberships WHERE tenant_id = $1 ORDER BY created_at",
+            [tenantId]
+          );
+          return { status: 200, body: { members: members.rows } };
+        }
+
+        if (resource === "members" && request.method === "POST") {
+          requirePermission(role, "manageMembers");
+          const body = await readJson(request);
+          const userId = requireUuid(body.user_id, "user_id");
+          if (!canAssignRole(role, body.role)) throw new AuthorizationError("This role cannot be assigned by your tenant role.");
+          const existing = await client.query("SELECT 1 FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2", [tenantId, userId]);
+          if (existing.rowCount) {
+            const error = new Error("This user already has a membership in the tenant.");
+            error.status = 409;
+            throw error;
+          }
+          await client.query(
+            "INSERT INTO tenant_memberships (tenant_id, user_id, role, status) VALUES ($1, $2, $3, 'active')",
+            [tenantId, userId, body.role]
+          );
+          await audit(client, tenantId, user.id, "membership.created", "tenant_membership", userId, { role: body.role });
+          return { status: 201, body: { membership: { tenant_id: tenantId, user_id: userId, role: body.role, status: "active" } } };
+        }
+
+        const error = new Error("API route not found.");
+        error.status = 404;
+        throw error;
+      });
+
+      send(response, result.status, result.body, requestId);
+    } catch (error) {
+      const status = Number.isInteger(error.status) ? error.status : 500;
+      if (status >= 500) logger.error?.("API request failed", { request_id: requestId, error: error.message });
+      const code = status === 401 ? "UNAUTHENTICATED" :
+        status === 403 ? (error.code || "FORBIDDEN") :
+        status === 404 ? "NOT_FOUND" :
+        status === 405 ? "METHOD_NOT_ALLOWED" :
+        status === 409 ? "CONFLICT" :
+        status === 413 ? "PAYLOAD_TOO_LARGE" :
+        status === 415 ? "UNSUPPORTED_MEDIA_TYPE" :
+        status === 400 ? "BAD_REQUEST" :
+        status === 503 ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR";
+      const message = status >= 500 ? (status === 503 ? error.message : "The request could not be completed.") : error.message;
+      send(response, status, { error: { code, message, request_id: requestId } }, requestId);
+    }
+    return true;
+  };
+}

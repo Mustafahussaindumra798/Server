@@ -3,28 +3,36 @@
 **Code Your Future** — a multi-device hosting control-plane prototype.
 
 ## Current status
-This repository contains a dashboard simulation, a small Node.js development server, a documented control-plane design, and an initial PostgreSQL schema migration. The dashboard still uses in-memory sample data only. No real device connects, no workload is deployed, and no live database is configured.
+This repository contains a dashboard simulation, a Node.js HTTP server, an OIDC-authenticated tenant API foundation, PostgreSQL migrations, and security/integration tests. The dashboard still uses in-memory sample data only. No real device connects and no workload is deployed.
 
-## Run the dashboard locally
-Requires Node.js 20 or newer.
+## Run locally
+Requires Node.js 20 or newer and PostgreSQL for authenticated API routes.
 
 ```bash
-node server.mjs
+npm install
+npm start
 ```
 
 Open http://127.0.0.1:4173. Set `PORT` or `HOST` to override the defaults.
 
 Health check: `GET /api/health`.
 
-## Database foundation
-- Schema migration: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
-- Apply and security notes: [docs/database.md](docs/database.md)
+## Configure authentication API
+Apply migrations in order:
+1. `database/migrations/001_initial_schema.sql`
+2. `database/migrations/002_auth_identity_context.sql`
 
-The migration has not been applied to a live database. Review it and test it against a disposable PostgreSQL instance before connecting an API.
+Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
 
-## Architecture
+The dashboard runs without these settings. Authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured.
+
+## Database and architecture
+- Schema: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
+- Authentication identity policy: [database/migrations/002_auth_identity_context.sql](database/migrations/002_auth_identity_context.sql)
+- Database notes: [docs/database.md](docs/database.md)
+- Authentication and RBAC: [docs/authentication-rbac.md](docs/authentication-rbac.md)
 - [System architecture](docs/architecture.md)
 - [Control-plane backend design](docs/control-plane-design.md)
 - [Delivery roadmap](docs/roadmap.md)
 
-Real authentication, node enrollment, heartbeat processing, scheduling, workload execution and production hosting are not implemented yet.
+Node enrollment, heartbeat processing, scheduling, agent communication, real workload execution and production hosting are not implemented yet.

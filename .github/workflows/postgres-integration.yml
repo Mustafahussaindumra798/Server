@@ -35,12 +35,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
       - name: Set up PostgreSQL client
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
       - name: Apply initial schema
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/001_initial_schema.sql
+      - name: Apply authentication policy migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/002_auth_identity_context.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Run application tests
