@@ -313,14 +313,13 @@ CREATE POLICY nodes_read_member ON nodes
   FOR SELECT USING (app_private.is_tenant_member(tenant_id) OR app_private.is_current_node(id));
 CREATE POLICY nodes_insert_admin ON nodes
   FOR INSERT WITH CHECK (app_private.can_manage_tenant(tenant_id));
-CREATE POLICY nodes_update_admin_or_agent ON nodes
-  FOR UPDATE USING (app_private.can_manage_tenant(tenant_id) OR app_private.is_current_node(id))
-  WITH CHECK (app_private.can_manage_tenant(tenant_id) OR app_private.is_current_node(id));
+CREATE POLICY nodes_update_admin ON nodes
+  FOR UPDATE USING (app_private.can_manage_tenant(tenant_id))
+  WITH CHECK (app_private.can_manage_tenant(tenant_id));
 
 CREATE POLICY node_credentials_read_owner_or_agent ON node_credentials
   FOR SELECT USING (
-    app_private.is_current_node(node_id)
-    OR EXISTS (
+    EXISTS (
       SELECT 1 FROM nodes AS node
       WHERE node.id = node_credentials.node_id
         AND app_private.can_manage_tenant(node.tenant_id)
