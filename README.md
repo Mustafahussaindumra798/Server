@@ -3,9 +3,9 @@
 **Code Your Future** — a multi-device hosting control-plane prototype.
 
 ## Current status
-This repository currently contains a static dashboard and a small Node.js development server. The dashboard uses in-memory sample data only. It does not connect to devices, deploy containers, create tunnels, or host customer workloads.
+This repository contains a dashboard simulation, a small Node.js development server, a documented control-plane design, and an initial PostgreSQL schema migration. The dashboard still uses in-memory sample data only. No real device connects, no workload is deployed, and no live database is configured.
 
-## Run locally
+## Run the dashboard locally
 Requires Node.js 20 or newer.
 
 ```bash
@@ -16,11 +16,15 @@ Open http://127.0.0.1:4173. Set `PORT` or `HOST` to override the defaults.
 
 Health check: `GET /api/health`.
 
-## Prototype interactions
-- Browse the overview, nodes, applications, deployments, network, activity and settings navigation.
-- Register a sample node using the modal. This changes only browser memory.
-- Dismiss the simulation notice.
-- Refreshing the page resets sample data.
+## Database foundation
+- Schema migration: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
+- Apply and security notes: [docs/database.md](docs/database.md)
 
-## Architecture direction
-See [docs/architecture.md](docs/architecture.md) and [docs/roadmap.md](docs/roadmap.md). Real node enrollment, authentication, scheduling, deployments, networking and persistence are not implemented yet.
+The migration has not been applied to a live database. Review it and test it against a disposable PostgreSQL instance before connecting an API.
+
+## Architecture
+- [System architecture](docs/architecture.md)
+- [Control-plane backend design](docs/control-plane-design.md)
+- [Delivery roadmap](docs/roadmap.md)
+
+Real authentication, node enrollment, heartbeat processing, scheduling, workload execution and production hosting are not implemented yet.
