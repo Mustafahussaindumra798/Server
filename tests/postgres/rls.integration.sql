@@ -128,7 +128,7 @@ SET ROLE cloudexify_test_runtime;
 BEGIN;
 SELECT set_config('app.identity_subject', 'oidc|tenant-a-owner', true);
 SELECT set_config('app.user_id', '', true);
-DO $
+DO $identity_test$
 BEGIN
   IF (SELECT count(*) FROM users) <> 1 THEN
     RAISE EXCEPTION 'Verified identity context did not resolve exactly one user';
@@ -136,15 +136,15 @@ BEGIN
   IF (SELECT identity_subject FROM users LIMIT 1) <> 'oidc|tenant-a-owner' THEN
     RAISE EXCEPTION 'Identity context resolved the wrong user';
   END IF;
-END $;
+END $identity_test$;
 COMMIT;
 
-DO $
+DO $identity_test$
 BEGIN
   IF COALESCE(current_setting('app.identity_subject', true), '') <> '' THEN
     RAISE EXCEPTION 'Identity context leaked beyond its transaction';
   END IF;
-END $;
+END $identity_test$;
 
 BEGIN;
 SELECT set_config('app.user_id', '10000000-0000-4000-8000-000000000001', true);
