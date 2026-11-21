@@ -317,7 +317,7 @@ CREATE POLICY nodes_update_admin ON nodes
   FOR UPDATE USING (app_private.can_manage_tenant(tenant_id))
   WITH CHECK (app_private.can_manage_tenant(tenant_id));
 
-CREATE POLICY node_credentials_read_owner_or_agent ON node_credentials
+CREATE POLICY node_credentials_read_admin ON node_credentials
   FOR SELECT USING (
     EXISTS (
       SELECT 1 FROM nodes AS node
