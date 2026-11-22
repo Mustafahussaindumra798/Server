@@ -115,7 +115,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
   let nextHeartbeat = 0;
   let nextPoll = 0;
   let lastCpuMetrics = null;
-  onLog("info", "Linux node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
+  onLog("info", "Linux/Android node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
 
   while (!signal?.aborted) {
     const now = Date.now();
@@ -172,7 +172,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
     try { await sleep(wait, undefined, { signal }); }
     catch (error) { if (!signal?.aborted) throw error; }
   }
-  onLog("info", "Linux node agent stopped", { node_id: state.node_id });
+  onLog("info", "Linux/Android node agent stopped", { node_id: state.node_id });
 }
 
 function usage() {
