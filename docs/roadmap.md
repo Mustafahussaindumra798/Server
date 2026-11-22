@@ -58,6 +58,7 @@
 - [x] Rejection revokes active credentials and writes audit events
 - [x] Approval sets recently heartbeating nodes online; stale nodes remain offline
 - [x] Add API tests for approval, rejection, authorization and audit events
+- [x] Add Owner/Admin dashboard action to create short-lived one-time node enrollment tokens
 - [ ] Qualify Android/Termux on the user's physical phone
 - [ ] Verify real heartbeat and resource metrics appear in dashboard
 - [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
