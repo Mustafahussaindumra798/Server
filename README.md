@@ -3,7 +3,7 @@
 **Code Your Future** — a multi-device hosting control-plane prototype.
 
 ## Current status
-This repository contains a dashboard simulation, a Node.js HTTP server, an OIDC-authenticated tenant API foundation, PostgreSQL migrations, and security/integration tests. The dashboard still uses in-memory sample data only. No real device connects and no workload is deployed.
+This repository contains a dashboard simulation, a Node.js HTTP server, a Vercel serverless API adapter, an OIDC-authenticated tenant API foundation, PostgreSQL migrations, and security/integration tests. The dashboard still uses in-memory sample data only. No real device connects and no workload is deployed.
 
 ## Run locally
 Requires Node.js 20 or newer and PostgreSQL for authenticated API routes.
@@ -17,6 +17,19 @@ Open http://127.0.0.1:4173. Set `PORT` or `HOST` to override the defaults.
 
 Health check: `GET /api/health`.
 
+## Deploy dashboard and API to Vercel
+
+The repository root is the Vercel project root. Static dashboard files (`index.html`, `app.js`, `styles.css`) are served from the root, while `api/` contains Vercel Node.js Functions. PostgreSQL remains in Supabase.
+
+Follow the complete setup guide: [Vercel + Supabase deployment](docs/deployment/vercel-supabase.md).
+
+Important:
+- Run database migrations 001–005 in order on an empty Supabase database.
+- Create and use the restricted `cloudexify_runtime` database role, not the `postgres` owner.
+- Set `DATABASE_URL` to the Supabase Transaction Pooler URL (port 6543), plus the documented server-side environment variables.
+- The Vercel `/api/health` endpoint checks database connectivity.
+- The dashboard currently remains a demo UI; live dashboard queries and login UI are not yet integrated.
+
 ## Configure authentication API
 Apply migrations in order:
 1. `database/migrations/001_initial_schema.sql`
@@ -25,9 +38,9 @@ Apply migrations in order:
 4. `database/migrations/004_node_heartbeat.sql`
 5. `database/migrations/005_safe_node_jobs.sql`
 
-Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
+Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
 
-The dashboard runs without these settings. Authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured. The Linux node agent is started separately with `npm run agent -- enroll` and `npm run agent -- run`; see [Linux Node Agent Runtime](docs/node-agent-linux.md).
+The dashboard runs without these settings. User-authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured. Node credential routes use their own per-node authentication. The Linux node agent is started separately with `npm run agent -- enroll` and `npm run agent -- run`; see [Linux Node Agent Runtime](docs/node-agent-linux.md).
 
 ## Database and architecture
 - Schema: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
@@ -35,6 +48,7 @@ The dashboard runs without these settings. Authenticated `/api/v1` routes return
 - Node enrollment function: [database/migrations/003_node_enrollment.sql](database/migrations/003_node_enrollment.sql)
 - Node heartbeat function: [database/migrations/004_node_heartbeat.sql](database/migrations/004_node_heartbeat.sql)
 - Safe typed node jobs: [database/migrations/005_safe_node_jobs.sql](database/migrations/005_safe_node_jobs.sql)
+- Supabase runtime role grants: [supabase/setup/001_runtime_role.sql](supabase/setup/001_runtime_role.sql)
 - [Safe node job protocol](docs/node-jobs.md)
 - [Node heartbeat API](docs/node-heartbeat.md)
 - Database notes: [docs/database.md](docs/database.md)
