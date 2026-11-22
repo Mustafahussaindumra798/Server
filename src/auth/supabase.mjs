@@ -18,12 +18,12 @@ export function createSupabaseAuthVerifier({ supabaseUrl, apiKey, fetchImpl = fe
   const CACHE_TTL_MS = 10_000;
   const CACHE_MAX_ENTRIES = 500;
 
-  return async function verifySupabaseAccessToken(token) {
+  return async function verifySupabaseAccessToken(token, { cache = true } = {}) {
     if (typeof token !== "string" || token.length > 16384 || !/^[A-Za-z0-9._~-]+$/.test(token)) {
       throw new AuthenticationError("Invalid access token.");
     }
     const cacheKey = createHash("sha256").update(token, "utf8").digest("hex");
-    const cached = verificationCache.get(cacheKey);
+    const cached = cache ? verificationCache.get(cacheKey) : null;
     if (cached && cached.expiresAt > Date.now()) return cached.principal;
     if (cached) verificationCache.delete(cacheKey);
     let response;
@@ -47,11 +47,13 @@ export function createSupabaseAuthVerifier({ supabaseUrl, apiKey, fetchImpl = fe
       identitySubject: issuer + "|" + user.id,
       claims: { sub: user.id, iss: issuer, email: typeof user.email === "string" ? user.email : null }
     };
-    if (verificationCache.size >= CACHE_MAX_ENTRIES) {
-      const oldestKey = verificationCache.keys().next().value;
-      if (oldestKey) verificationCache.delete(oldestKey);
+    if (cache) {
+      if (verificationCache.size >= CACHE_MAX_ENTRIES) {
+        const oldestKey = verificationCache.keys().next().value;
+        if (oldestKey) verificationCache.delete(oldestKey);
+      }
+      verificationCache.set(cacheKey, { principal, expiresAt: Date.now() + CACHE_TTL_MS });
     }
-    verificationCache.set(cacheKey, { principal, expiresAt: Date.now() + CACHE_TTL_MS });
     return principal;
   };
 }
