@@ -3,7 +3,7 @@ const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
 const REFRESH_INTERVAL_MS = 3000;
 const SESSION_REFRESH_MARGIN_SECONDS = 300;
 let refreshInFlight = null;
-const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [], members: [] }, timer: null, loading: false };
+const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [], members: [] }, timer: null, loading: false, refreshFailures: 0, nextRefreshAt: 0 };
 
 export const pageMeta = {
   overview: ["Overview", "Infrastructure overview", "Live status from your registered infrastructure."],
@@ -293,13 +293,24 @@ function renderPage() {
   if (diagnosticButton) diagnosticButton.hidden = !(state.page === "jobs" && ["owner", "admin", "operator"].includes(currentRole) && nodes.some((node) => ["online", "degraded"].includes(node.status)));
   if (state.page === "nodes" && state.selectedNodeId) renderNodeDetails(state.selectedNodeId);
 }
-async function refreshData() {
-  if (state.loading || !state.session) return;
+async function refreshData({ force = false } = {}) {
+  if (state.loading || !state.session || (!force && Date.now() < state.nextRefreshAt)) return;
   state.loading = true;
-  $("#refresh-button").disabled = true;
-  try { await loadData(); }
-  catch (error) { dashboardMessage(error.message || "Unable to load workspace data.", true); }
-  finally { state.loading = false; $("#refresh-button").disabled = false; }
+  const refreshButton = $("#refresh-button");
+  if (refreshButton) refreshButton.disabled = true;
+  try {
+    await loadData();
+    state.refreshFailures = 0;
+    state.nextRefreshAt = 0;
+  } catch (error) {
+    state.refreshFailures += 1;
+    const delay = Math.min(30000, REFRESH_INTERVAL_MS * (2 ** Math.min(state.refreshFailures - 1, 4)));
+    state.nextRefreshAt = Date.now() + delay;
+    dashboardMessage((error.message || "Unable to load workspace data.") + " Retrying in " + Math.ceil(delay / 1000) + " seconds.", true);
+  } finally {
+    state.loading = false;
+    if (refreshButton) refreshButton.disabled = false;
+  }
 }
 async function openDashboard() {
   const user = await api("/api/v1/auth/me");
@@ -330,7 +341,7 @@ async function init() {
     catch (error) { $("#app-view").hidden = true; $("#auth-view").hidden = false; message(error.message || "Unable to restore the session. Retry when the connection is available.", true); }
   }
   $("#signout-button").addEventListener("click", signOut);
-  $("#refresh-button").addEventListener("click", refreshData);
+  $("#refresh-button").addEventListener("click", () => refreshData({ force: true }));
   $("#create-enrollment-button").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     if (button.disabled || !state.tenantId) return;
@@ -449,7 +460,7 @@ async function init() {
   }));
   $("#menu-btn").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && state.session) void refreshData();
+    if (!document.hidden && state.session) void refreshData({ force: true });
   });
 }
 init().catch((error) => { message(error.message || "Dashboard initialization failed.", true); });
