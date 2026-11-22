@@ -27,7 +27,7 @@ Apply migrations in order:
 
 Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
 
-The dashboard runs without these settings. Authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured.
+The dashboard runs without these settings. Authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured. The Linux node agent is started separately with `npm run agent -- enroll` and `npm run agent -- run`; see [Linux Node Agent Runtime](docs/node-agent-linux.md).
 
 ## Database and architecture
 - Schema: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
@@ -44,4 +44,4 @@ The dashboard runs without these settings. Authenticated `/api/v1` routes return
 - [Node OS/runtime support matrix](docs/node-runtime-support.md)
 - [Delivery roadmap](docs/roadmap.md)
 
-Node enrollment, authenticated heartbeat, and the typed diagnostic job queue are implemented. Only non-mutating `probe` and `collect_metrics` jobs are enabled; arbitrary shell execution is not supported. A packaged node agent, workload execution adapters, scheduling, real workload execution and production hosting are not implemented yet.
+Node enrollment, authenticated heartbeat, and the typed diagnostic job queue are implemented. Only non-mutating `probe` and `collect_metrics` jobs are enabled; arbitrary shell execution is not supported. A Linux x86_64/aarch64 diagnostic node agent is implemented with secure local credential storage, heartbeat reporting, and `probe`/`collect_metrics` handlers. General workload execution, scheduling, automatic installation/upgrades and production hosting are not implemented yet.
