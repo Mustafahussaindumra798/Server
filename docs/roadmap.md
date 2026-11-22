@@ -17,8 +17,12 @@
 - [x] Application creation UI connected to protected API
 - [x] Deployment request UI connected to protected API (record creation only; no workload runtime)
 - [x] Workspace member listing and role assignment UI
+- [x] Operational overview panels for recent jobs and application inventory
+- [x] Settings page showing session refresh, access-token expiry, API limit and runtime readiness
+- [x] Bounded retry backoff after API/network failures, with manual refresh override
 - [x] Diagnostic job form with explicit node selection
 - [ ] Verify production deployment contains the latest `main` commit
+- [ ] Verify Supabase session restoration after browser refresh on the user's device
 - [ ] Measure production API latency and tune refresh/backoff behavior
 - [ ] Manual visual and functional QA on Android/mobile and desktop
 - [ ] Browser-based visual QA across target devices
