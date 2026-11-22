@@ -10,6 +10,10 @@ test("Vercel configuration serves root static assets and Node API functions", as
   const versionedApi = await readFile(new URL("../api/v1/[...path].mjs", import.meta.url), "utf8");
   assert.match(versionedApi, /createApiHandler/);
   assert.match(versionedApi, /createDatabasePool/);
+  const currentUserRoute = await readFile(new URL("../api/v1/auth/me.mjs", import.meta.url), "utf8");
+  const tenantRoutes = await readFile(new URL("../api/v1/tenants/[...path].mjs", import.meta.url), "utf8");
+  assert.match(currentUserRoute, /createApiHandler/);
+  assert.match(tenantRoutes, /createApiHandler/);
 });
 
 test("serverless database pool can be limited to one connection", async () => {
