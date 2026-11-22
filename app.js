@@ -164,7 +164,7 @@ function nodeRows(nodes) {
     const actions = canManage && node.status === "pending"
       ? '<div class="node-actions"><button type="button" class="small-action" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="small-action" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
       : "";
-    return "<tr><td>" + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
+    return '<tr class="node-row" tabindex="0" data-node-open="' + escapeHtml(node.id) + '"><td><strong>' + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
 }
 function applicationRows(apps) {
@@ -175,6 +175,27 @@ function deploymentRows(items) {
 }
 function jobRows(items) {
   return items.map((item) => "<tr><td>" + escapeHtml(item.type) + "</td><td>" + escapeHtml(item.node_id) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(item.attempt_count) + "</td><td>" + escapeHtml(formatDate(item.updated_at || item.created_at)) + "</td></tr>");
+}
+function renderNodeDetails(nodeId) {
+  const node = state.data.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  const r = node.resources || {};
+  const items = [
+    ["CPU usage", r.cpu_percent == null ? "Not reported" : Number(r.cpu_percent).toFixed(1) + "%"],
+    ["Memory used", r.memory_used_bytes == null ? "Not reported" : formatBytes(r.memory_used_bytes)],
+    ["Memory total", r.memory_total_bytes == null ? "Not reported" : formatBytes(r.memory_total_bytes)],
+    ["Storage available", r.disk_available_bytes == null ? "Not reported" : formatBytes(r.disk_available_bytes)],
+    ["Storage total", r.disk_total_bytes == null ? "Not reported" : formatBytes(r.disk_total_bytes)],
+    ["Load average", r.load_1m == null ? "Not reported" : Number(r.load_1m).toFixed(2)],
+    ["Uptime", r.uptime_seconds == null ? "Not reported" : Math.floor(r.uptime_seconds / 3600) + " hours"],
+    ["Battery", r.battery_percent == null ? "Not reported" : Number(r.battery_percent).toFixed(0) + "%"],
+    ["Temperature", r.temperature_c == null ? "Not reported" : Number(r.temperature_c).toFixed(1) + " °C"]
+  ];
+  let panel = $("#node-details");
+  if (!panel) { panel = document.createElement("section"); panel.id = "node-details"; panel.className = "panel node-details"; $("#table-content").after(panel); }
+  panel.hidden = false;
+  panel.innerHTML = '<div class="panel-heading"><div><h2>' + escapeHtml(node.name) + '</h2><p>' + escapeHtml(node.id) + '</p></div><button class="secondary-btn" id="close-node-details" type="button">Close</button></div><div class="node-detail-grid"><div><span>STATUS</span><b>' + escapeHtml(node.status) + '</b></div><div><span>PLATFORM</span><b>' + escapeHtml(node.platform) + ' · ' + escapeHtml(node.architecture) + '</b></div><div><span>AGENT VERSION</span><b>' + escapeHtml(node.agent_version || "—") + '</b></div><div><span>LAST HEARTBEAT</span><b>' + escapeHtml(formatDate(node.last_seen_at)) + '</b></div>' + items.map(([label,value]) => '<div><span>' + escapeHtml(label) + '</span><b>' + escapeHtml(value) + '</b></div>').join("") + '</div>';
+  $("#close-node-details").addEventListener("click", () => { panel.hidden = true; state.selectedNodeId = null; });
 }
 function renderPage() {
   const [navTitle, title, subtitle] = pageMeta[state.page] || pageMeta.overview;
@@ -204,6 +225,9 @@ function renderPage() {
   $("#table-title").textContent = config[0];
   $("#table-subtitle").textContent = config[1];
   $("#table-content").innerHTML = config[2];
+  const diagnosticButton = $("#create-diagnostic-job");
+  if (diagnosticButton) diagnosticButton.hidden = !(state.page === "jobs" && ["owner", "admin"].includes(currentRole) && nodes.some((node) => node.status === "online"));
+  if (state.page === "nodes" && state.selectedNodeId) renderNodeDetails(state.selectedNodeId);
 }
 async function refreshData() {
   if (state.loading || !state.session) return;
@@ -260,6 +284,8 @@ async function init() {
     } finally { button.disabled = false; }
   });
   $("#table-content").addEventListener("click", async (event) => {
+    const row = event.target.closest("[data-node-open]");
+    if (row && !event.target.closest("[data-node-action]")) { state.selectedNodeId = row.dataset.nodeOpen; renderNodeDetails(state.selectedNodeId); return; }
     const button = event.target.closest("[data-node-action]");
     if (!button || button.disabled) return;
     const action = button.dataset.nodeAction;
@@ -275,6 +301,19 @@ async function init() {
       dashboardMessage(error.message || "Unable to update node approval.", true);
       button.disabled = false;
     }
+  });
+  $("#create-diagnostic-job").addEventListener("click", async () => {
+    const node = state.data.nodes.find((item) => item.status === "online");
+    if (!node) { dashboardMessage("No online node is available for diagnostics.", true); return; }
+    const type = window.prompt("Enter diagnostic type: probe or collect_metrics", "collect_metrics");
+    if (!["probe", "collect_metrics"].includes(String(type || "").trim())) return;
+    const button = $("#create-diagnostic-job"); button.disabled = true;
+    try {
+      await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/jobs", { method: "POST", body: JSON.stringify({ node_id: node.id, type: String(type).trim(), payload: {}, idempotency_key: "dashboard-" + crypto.randomUUID() }) });
+      dashboardMessage(type + " job queued for " + node.name + ".");
+      await refreshData();
+    } catch (error) { dashboardMessage(error.message || "Unable to queue diagnostic job.", true); }
+    finally { button.disabled = false; }
   });
   $("#tenant-select").addEventListener("change", async (event) => {
     state.tenantId = event.target.value;
