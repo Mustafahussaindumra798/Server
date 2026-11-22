@@ -270,7 +270,7 @@ CREATE ROLE cloudexify_test_runtime LOGIN PASSWORD 'test-only-password'
 GRANT USAGE ON SCHEMA public, app_private TO cloudexify_test_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cloudexify_test_runtime;
 GRANT EXECUTE ON FUNCTION app_private.enroll_node(text,text,text,text,text,jsonb,text) TO cloudexify_test_runtime;
-GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) TO cloudexify_test_runtime;
+GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.node_credential_is_valid(uuid,text) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) TO cloudexify_test_runtime;
 
 SET ROLE cloudexify_test_runtime;
 
