@@ -86,8 +86,12 @@
 - [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
 
 ## Milestone 3 — Scheduler and deployment lifecycle
-- [ ] Pool-aware fair job scheduling across all healthy/approved nodes (not a fixed node target)
-- [ ] Atomic least-loaded / round-robin placement with idempotency across the tenant
+- [x] Pool-aware automatic job placement across approved, recently healthy nodes
+- [x] Least-outstanding-jobs placement with oldest-assignment tie-break
+- [x] Atomic node row locks with `SKIP LOCKED` to distribute concurrent submissions
+- [x] Tenant-wide idempotency serialization so retries retain the original node assignment
+- [ ] Load-aware capacity weights and fairness qualification under concurrent physical-node load
+- [ ] End-to-end multi-node job claim/ack test on both Android devices
 - [ ] Resource admission and placement policy
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
