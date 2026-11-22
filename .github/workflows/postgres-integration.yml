@@ -55,5 +55,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/006_fair_job_scheduling.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
+      - name: Verify fair job distribution
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/job-scheduling.integration.sql
       - name: Run application tests
         run: npm test
