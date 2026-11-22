@@ -62,3 +62,16 @@ export async function withNodeEnrollment(pool, enrollment) {
     throw error;
   } finally { client.release(); }
 }
+
+
+export async function withNodeHeartbeat(pool, heartbeat) {
+  const client = await pool.connect(); let transactionStarted = false;
+  try {
+    await client.query("BEGIN"); transactionStarted = true;
+    const result = await client.query("SELECT * FROM app_private.accept_node_heartbeat($1, $2, $3, $4, $5::jsonb)", [heartbeat.nodeId, heartbeat.credentialHash, heartbeat.agentVersion, heartbeat.healthStatus, JSON.stringify(heartbeat.resources)]);
+    await client.query("COMMIT"); transactionStarted = false; return result.rows[0] || null;
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
