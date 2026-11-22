@@ -52,8 +52,12 @@
 - [x] Linux x86_64/aarch64 diagnostic node agent
 - [x] Android/Termux environment detection and optional battery/thermal metric collection added
 - [x] Unit coverage added for Android/Termux identity detection
-- [ ] Run automated test suite against latest agent changes
-- [ ] Add node approval/rejection workflow required before nodes can become online
+- [ ] Verify GitHub Actions CI for latest Android/Termux and node-approval commits
+- [x] Add tenant-scoped Owner/Admin node approval and rejection API
+- [x] Add dashboard Approve/Reject controls for pending nodes
+- [x] Rejection revokes active credentials and writes audit events
+- [x] Approval sets recently heartbeating nodes online; stale nodes remain offline
+- [x] Add API tests for approval, rejection, authorization and audit events
 - [ ] Qualify Android/Termux on the user's physical phone
 - [ ] Verify real heartbeat and resource metrics appear in dashboard
 - [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
