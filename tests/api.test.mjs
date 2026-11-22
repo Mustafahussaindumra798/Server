@@ -328,6 +328,6 @@ test("owner can load the combined dashboard snapshot in one database query", asy
   });
   assert.equal(response.status, 200);
   const payload = await response.json();
-  assert.deepEqual(payload, { nodes: [], applications: [], deployments: [], jobs: [] });
+  assert.deepEqual(payload, { nodes: [], applications: [], deployments: [], jobs: [], members: [] });
   assert.equal(api.pool.calls.filter((call) => call.sql.includes("AS nodes") && call.sql.includes("AS applications")).length, 1);
 });
