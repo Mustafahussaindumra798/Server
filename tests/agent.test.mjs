@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, chmod, lstat, symlink, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getLinuxIdentity, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
+import { getLinuxIdentity, getCapabilities, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
 import { executeDiagnostic, enrollNode, runAgent } from "../agent.mjs";
 
@@ -147,4 +147,11 @@ test("agent stops when the control plane rejects its node credential", async (t)
     fetchImpl: async () => new Response(JSON.stringify({ error: { message: "Node credential is invalid, expired or revoked." } }),
       { status: 401, headers: { "content-type": "application/json" } })
   }), /invalid, expired or revoked/);
+});
+
+test("agent advertises diagnostics but does not claim workload execution", () => {
+  const capabilities = getCapabilities();
+  assert.deepEqual(capabilities.diagnostics, ["probe", "collect_metrics"]);
+  assert.equal(capabilities.workload_execution, false);
+  assert.ok(capabilities.service_manager === null || capabilities.service_manager === "systemd");
 });
