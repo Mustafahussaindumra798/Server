@@ -29,7 +29,7 @@ function fakePool(role = "viewer") {
       if (query.startsWith("SELECT id, identity_subject")) {
         return { rows: [{ id: userId, identity_subject: issuer + "|api-user", email: "api@example.test", display_name: "API User" }], rowCount: 1 };
       }
-      if (query.startsWith("SELECT membership.role")) {
+      if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds FROM nodes")) return { rows: [{ id: params[0], status: "online", approved_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 60 }], rowCount: 1 };\n      if (query.startsWith("INSERT INTO jobs")) return { rows: [{ id: "60000000-0000-4000-8000-000000000001", tenant_id: tenantId, node_id: params[1], type: params[2], payload: JSON.parse(params[3]), status: "queued", attempt_count: 0, max_attempts: 5, created_at: new Date().toISOString() }], rowCount: 1 };\n      if (query.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs")) return { rows: [], rowCount: 0 };\n      if (query.startsWith("SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, available_at, lease_expires_at, created_at, updated_at FROM jobs")) return { rows: [], rowCount: 0 };\n      if (query.startsWith("SELECT membership.role")) {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
       if (query.startsWith("SELECT id, tenant_id, name, desired_state")) return { rows: [], rowCount: 0 };
@@ -44,7 +44,7 @@ function fakePool(role = "viewer") {
       if (query.startsWith("UPDATE node_credentials")) return { rows: [{ id: "80000000-0000-4000-8000-000000000001", revoked_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT count(*)::integer AS active_count")) return { rows: [{ active_count: 0 }], rowCount: 1 };
       if (query.startsWith("SELECT * FROM app_private.enroll_node")) return { rows: [{ node_id: "30000000-0000-4000-8000-000000000001", tenant_id: tenantId, credential_id: "80000000-0000-4000-8000-000000000001" }], rowCount: 1 };
-      if (query.startsWith("SELECT * FROM app_private.accept_node_heartbeat")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ node_id: params[0], status: "online", last_seen_at: "2026-11-22T00:00:00.000Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (query.startsWith("SELECT * FROM app_private.accept_node_heartbeat")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ node_id: params[0], status: "online", last_seen_at: "2026-11-22T00:00:00.000Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };\n      if (query.startsWith("SELECT * FROM app_private.claim_node_jobs")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ job_id: "60000000-0000-4000-8000-000000000001", job_type: "probe", payload: {}, attempt_id: "70000000-0000-4000-8000-000000000001", lease_token: "80000000-0000-4000-8000-000000000001", lease_expires_at: new Date(Date.now() + 60000).toISOString(), attempt_number: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };\n      if (query.startsWith("SELECT * FROM app_private.acknowledge_node_job")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ job_id: params[2], status: params[5], attempt_id: params[3], retry_at: null }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (query.startsWith("INSERT INTO audit_events")) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
@@ -196,4 +196,80 @@ test("node heartbeat rejects invalid health and resource metrics", async (t) => 
     const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify(body) });
     assert.equal(response.status, 400);
   }
+});
+
+
+test("operator creates a typed, idempotent-safe diagnostic job for an online approved node", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ node_id: "30000000-0000-4000-8000-000000000001", type: "probe", payload: {}, idempotency_key: "probe-node-a-01" })
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  assert.equal(payload.job.type, "probe");
+  assert.equal(payload.job.status, "queued");
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.job.created"), true);
+});
+
+test("job creation rejects shell commands and non-empty diagnostic payloads", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  for (const body of [
+    { node_id: "30000000-0000-4000-8000-000000000001", type: "shell", payload: { command: "id" }, idempotency_key: "bad-shell-01" },
+    { node_id: "30000000-0000-4000-8000-000000000001", type: "probe", payload: { command: "id" }, idempotency_key: "bad-payload-01" }
+  ]) {
+    const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+      method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" }, body: JSON.stringify(body)
+    });
+    assert.equal(response.status, 400);
+  }
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO jobs")), false);
+});
+
+test("viewer cannot create node jobs", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ node_id: "30000000-0000-4000-8000-000000000001", type: "probe", payload: {}, idempotency_key: "probe-denied-01" })
+  });
+  assert.equal(response.status, 403);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO jobs")), false);
+});
+
+test("node polls jobs using its credential and bounded lease parameters", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/claim", {
+    method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: JSON.stringify({ limit: 2, lease_seconds: 90 })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.jobs[0].job_type, "probe");
+  const call = api.pool.calls.find((item) => item.sql.startsWith("SELECT * FROM app_private.claim_node_jobs"));
+  assert.equal(call.params[2], 2);
+  assert.equal(call.params[3], 90);
+});
+
+test("node acknowledgement requires a valid lease and reports lifecycle state", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/60000000-0000-4000-8000-000000000001/ack", {
+    method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: JSON.stringify({ attempt_id: "70000000-0000-4000-8000-000000000001", lease_token: "80000000-0000-4000-8000-000000000001", status: "succeeded", result_code: "ok", result_summary: "Probe completed" })
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).job.status, "succeeded");
+});
+
+test("node job endpoints reject missing credentials and invalid lease bounds", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const missing = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/claim", {
+    method: "POST", headers: { "content-type": "application/json" }, body: "{}"
+  });
+  assert.equal(missing.status, 401);
+  const invalid = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/claim", {
+    method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: JSON.stringify({ limit: 99 })
+  });
+  assert.equal(invalid.status, 400);
 });
