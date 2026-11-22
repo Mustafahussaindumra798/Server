@@ -33,7 +33,9 @@ All routes require a verified OIDC bearer token.
 | POST | `/api/v1/tenants/:tenantId/applications` | Owner, Admin |
 | POST | `/api/v1/tenants/:tenantId/deployments` | Owner, Admin, Operator |
 | GET | `/api/v1/tenants/:tenantId/members` | Any active tenant role |
-| POST | `/api/v1/tenants/:tenantId/members` | Owner, Admin |\n| GET | `/api/v1/tenants/:tenantId/jobs` | Any active tenant role |\n| POST | `/api/v1/tenants/:tenantId/jobs` | Owner, Admin, Operator |
+| POST | `/api/v1/tenants/:tenantId/members` | Owner, Admin |
+| GET | `/api/v1/tenants/:tenantId/jobs` | Any active tenant role |
+| POST | `/api/v1/tenants/:tenantId/jobs` | Owner, Admin, Operator |
 
 Membership creation accepts an existing `user_id`. Owner may assign Admin, Operator or Viewer. Admin may assign Operator or Viewer. This first version does not implement invitations, ownership transfer, membership removal, password login, browser cookies, or platform-admin access.
 
@@ -79,7 +81,10 @@ GRANT USAGE ON SCHEMA public, app_private TO cloudexify_runtime;
 GRANT SELECT ON users, tenants, tenant_memberships, applications, deployments, nodes, node_credentials, jobs, job_attempts TO cloudexify_runtime;
 GRANT INSERT ON tenant_memberships, applications, deployments, audit_events, enrollment_tokens, jobs TO cloudexify_runtime;
 GRANT UPDATE ON nodes, node_credentials TO cloudexify_runtime;
-GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;\nGRANT EXECUTE ON FUNCTION app_private.node_credential_is_valid(uuid, text) TO cloudexify_runtime;\nGRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid, text, integer, integer) TO cloudexify_runtime;\nGRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid, text, uuid, uuid, uuid, text, text, text) TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.node_credential_is_valid(uuid, text) TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid, text, integer, integer) TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid, text, uuid, uuid, uuid, text, text, text) TO cloudexify_runtime;
 ```
 
 Replace `cloudexify` with the actual database name. Do not grant broad UPDATE or DELETE access. Extend privileges only alongside a reviewed API feature and its tests.
