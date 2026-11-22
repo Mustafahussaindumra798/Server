@@ -1,15 +1,26 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — a physical Android/Termux device has enrolled, been approved, and sent accepted online heartbeats with seven resource metrics. The explicit Vercel heartbeat/job routes are deployed and CI is green. Live job claim/ack execution, dashboard metric rendering, stop/restart behavior and full Android qualification remain to be verified.
+**Current stage:** Phase 1 — completing the control-plane dashboard and session/API reliability before scheduler and workload execution. Both Android/Termux devices have enrolled and connected (user-confirmed). Latest code changes are in `main`; production deployment and manual end-to-end QA must be verified before marking this phase complete.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
 - [x] Supabase email/password sign-in UI
 - [x] Session refresh and sign-out flow using Supabase Auth
+- [x] Proactive token refresh before expiry and one-time retry after stale-token 401
+- [x] Preserve refresh tokens through transient API/Auth network failures
+- [x] Bounded short-lived Supabase token-verification cache for frequent polling
 - [x] Remove hardcoded sample inventory from the active dashboard
 - [x] Empty, loading, and API error states
 - [x] Tenant selector and server-side role-scoped data
-- [x] 15-second dashboard refresh and manual refresh
+- [x] Three-second dashboard refresh and manual refresh through one combined snapshot
+- [x] Combined snapshot includes nodes, applications, deployments, jobs and workspace members
+- [x] Application creation UI connected to protected API
+- [x] Deployment request UI connected to protected API (record creation only; no workload runtime)
+- [x] Workspace member listing and role assignment UI
+- [x] Diagnostic job form with explicit node selection
+- [ ] Verify production deployment contains the latest `main` commit
+- [ ] Measure production API latency and tune refresh/backoff behavior
+- [ ] Manual visual and functional QA on Android/mobile and desktop
 - [ ] Browser-based visual QA across target devices
 
 ## Milestone 1 — Control-plane foundation
@@ -30,7 +41,9 @@
 - [x] Verify production login (user confirmed)
 - [x] Verify live dashboard node status using a real enrolled Android node (online heartbeat confirmed by user)
 - [ ] Verify resource metric values are rendered correctly in the dashboard
-- [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
+- [ ] Distributed API rate limits and login abuse protection
+- [ ] Monitoring, secrets management and security review
+- [ ] Confirm Supabase Auth JWT/session policy; client-side refresh cannot extend the configured JWT lifetime
 
 ## Independent control-plane deployment foundation
 - [x] Vercel Node.js Function adapter and health endpoint
@@ -68,6 +81,8 @@
 - [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
 
 ## Milestone 3 — Scheduler and deployment lifecycle
+- [ ] Pool-aware fair job scheduling across all healthy/approved nodes (not a fixed node target)
+- [ ] Atomic least-loaded / round-robin placement with idempotency across the tenant
 - [ ] Resource admission and placement policy
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
