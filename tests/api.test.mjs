@@ -44,7 +44,7 @@ function fakePool(role = "viewer") {
       if (query.startsWith("UPDATE node_credentials")) return { rows: [{ id: "80000000-0000-4000-8000-000000000001", revoked_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT count(*)::integer AS active_count")) return { rows: [{ active_count: 0 }], rowCount: 1 };
       if (query.startsWith("SELECT * FROM app_private.enroll_node")) return { rows: [{ node_id: "30000000-0000-4000-8000-000000000001", tenant_id: tenantId, credential_id: "80000000-0000-4000-8000-000000000001" }], rowCount: 1 };
-      if (query.startsWith("SELECT * FROM app_private.accept_node_heartbeat")) return params[1] === createHash("sha256").update("valid-node-secret").digest("hex") ? { rows: [{ node_id: params[0], status: "online", last_seen_at: "2026-11-22T00:00:00.000Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (query.startsWith("SELECT * FROM app_private.accept_node_heartbeat")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ node_id: params[0], status: "online", last_seen_at: "2026-11-22T00:00:00.000Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (query.startsWith("INSERT INTO audit_events")) return { rows: [], rowCount: 1 };
       return { rows: [], rowCount: 0 };
     },
@@ -174,16 +174,16 @@ test("owner can revoke a node credential and revoke its node when no active cred
 
 test("node heartbeat authenticates credentials and stores validated resource metrics", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
-  const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer valid-node-secret", "content-type": "application/json" }, body: JSON.stringify({ health_status: "healthy", agent_version: "0.1.0", resources: { cpu_percent: 21.5, memory_total_bytes: 4096, memory_used_bytes: 2048, uptime_seconds: 120 } }) });
+  const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify({ health_status: "healthy", agent_version: "0.1.0", resources: { cpu_percent: 21.5, memory_total_bytes: 4096, memory_used_bytes: 2048, uptime_seconds: 120 } }) });
   assert.equal(response.status, 200); assert.equal((await response.json()).node.status, "online");
   const call = api.pool.calls.find((item) => item.sql.startsWith("SELECT * FROM app_private.accept_node_heartbeat"));
-  assert.equal(call.params[0], nodeId); assert.equal(call.params[1], createHash("sha256").update("valid-node-secret").digest("hex"));
+  assert.equal(call.params[0], nodeId); assert.equal(call.params[1], createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex"));
   assert.deepEqual(JSON.parse(call.params[4]), { cpu_percent: 21.5, memory_total_bytes: 4096, memory_used_bytes: 2048, uptime_seconds: 120 });
 });
 
 test("node heartbeat rejects missing, invalid, revoked or expired credentials", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
-  for (const authorization of [undefined, "Bearer invalid-node-secret"]) {
+  for (const authorization of [undefined, "Bearer innode-credential-test-012345678901234567890123"]) {
     const headers = { "content-type": "application/json" }; if (authorization) headers.authorization = authorization;
     const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers, body: JSON.stringify({ health_status: "healthy", resources: {} }) });
     assert.equal(response.status, 401);
@@ -193,7 +193,7 @@ test("node heartbeat rejects missing, invalid, revoked or expired credentials", 
 test("node heartbeat rejects invalid health and resource metrics", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
   for (const body of [{ health_status: "unknown", resources: {} }, { health_status: "healthy", resources: { shell_command: 1 } }, { health_status: "healthy", resources: { cpu_percent: 101 } }, { health_status: "healthy", resources: { memory_used_bytes: "large" } }]) {
-    const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer valid-node-secret", "content-type": "application/json" }, body: JSON.stringify(body) });
+    const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify(body) });
     assert.equal(response.status, 400);
   }
 });
