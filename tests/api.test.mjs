@@ -32,7 +32,9 @@ function fakePool(role = "viewer") {
       if (query.startsWith("SELECT id, status, approved_at FROM nodes")) return { rows: [{ id: params[0], status: "pending", approved_at: null }], rowCount: 1 };
       if (query.startsWith("UPDATE nodes SET approved_at = COALESCE(approved_at, now())")) return { rows: [{ id: params[0], status: "online", approved_at: new Date().toISOString(), last_seen_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("UPDATE nodes SET status = 'revoked', approved_at = NULL")) return { rows: [{ id: params[0], status: "revoked", approved_at: null, last_seen_at: null }], rowCount: 1 };
-      if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds FROM nodes")) return { rows: [{ id: params[0], status: "online", approved_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 60 }], rowCount: 1 };
+      if (query.startsWith("SELECT id FROM nodes WHERE id =")) return { rows: [{ id: params[0] }], rowCount: 1 };
+      if (query.includes("AS active_jobs") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", active_jobs: 0, last_assigned_at: null }], rowCount: 1 };
+      if (query.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs WHERE tenant_id = $1 AND idempotency_key = $2")) return { rows: [], rowCount: 0 };
       if (query.startsWith("INSERT INTO jobs")) return { rows: [{ id: "60000000-0000-4000-8000-000000000001", tenant_id: tenantId, node_id: params[1], type: params[2], payload: JSON.parse(params[3]), status: "queued", attempt_count: 0, max_attempts: 5, created_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs")) return { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, available_at, lease_expires_at, created_at, updated_at FROM jobs")) return { rows: [], rowCount: 0 };
@@ -257,6 +259,44 @@ test("operator creates a typed, idempotent-safe diagnostic job for an online app
   assert.equal(payload.job.type, "probe");
   assert.equal(payload.job.status, "queued");
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.job.created"), true);
+});
+
+
+test("operator automatically schedules work across the eligible node pool", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ type: "probe", payload: {}, idempotency_key: "auto-pool-job-01" })
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  assert.equal(payload.job.node_id, "30000000-0000-4000-8000-000000000001");
+  const scheduler = api.pool.calls.find((call) => call.sql.includes("AS active_jobs") && call.sql.includes("FOR UPDATE OF node SKIP LOCKED"));
+  assert.ok(scheduler);
+  assert.match(scheduler.sql, /ORDER BY active_jobs ASC, last_assigned_at ASC NULLS FIRST/);
+  assert.equal(api.pool.calls.some((call) => call.sql.includes("pg_advisory_xact_lock")), true);
+});
+
+test("automatic scheduling returns conflict when the workspace has no eligible nodes", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const originalConnect = api.pool.connect;
+  api.pool.connect = async () => {
+    const client = await originalConnect();
+    const query = client.query.bind(client);
+    client.query = async (sql, params) => {
+      if (String(sql).includes("AS active_jobs")) return { rows: [], rowCount: 0 };
+      return query(sql, params);
+    };
+    return client;
+  };
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ type: "probe", payload: {}, idempotency_key: "no-node-pool-01" })
+  });
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).error.message, /No approved online nodes/);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO jobs")), false);
 });
 
 test("job creation rejects shell commands and non-empty diagnostic payloads", async (t) => {
