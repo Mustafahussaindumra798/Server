@@ -78,7 +78,11 @@ Existing routes include:
 - `POST /api/v1/tenants/:tenantId/jobs` (currently targets a selected node; pool scheduling is a later milestone)
 - `POST /api/v1/tenants/:tenantId/members`
 
-The dashboard refreshes protected API data every three seconds while active and also offers manual refresh. The startup flow reuses the tenant list returned by `/api/v1/auth/me` to avoid an unnecessary extra API round-trip. It does not subscribe directly to private database tables: the current RLS model depends on transaction-local `app.user_id`, not browser `auth.uid()`. Direct Realtime table subscriptions would require a separately designed and reviewed authorization bridge. The browser never receives the database connection string or service-role key.
+The dashboard refreshes protected API data every three seconds while active and also offers manual refresh. The startup flow reuses the tenant list returned by `/api/v1/auth/me` to avoid an unnecessary extra API round-trip.
+
+## Edge rate limiting
+
+Vercel Firewall has an active custom rule for the `/api/v1/` path prefix: **600 requests per 60 seconds per source IP**, using a fixed window and deny mitigation after the threshold. This leaves headroom for three-second dashboard refreshes and node heartbeats/job polling. Requests from users/devices behind the same public IP share that IP bucket, so revisit the threshold when the fleet grows. Supabase Auth sign-in remains subject to Supabase's own Auth rate limits; this project rule does not cover the separate Supabase Auth hostname. It does not subscribe directly to private database tables: the current RLS model depends on transaction-local `app.user_id`, not browser `auth.uid()`. Direct Realtime table subscriptions would require a separately designed and reviewed authorization bridge. The browser never receives the database connection string or service-role key.
 
 ## Legacy OIDC compatibility
 
