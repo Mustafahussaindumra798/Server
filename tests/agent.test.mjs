@@ -16,8 +16,10 @@ const validState = {
 
 test("Linux identity accepts only supported 64-bit architectures", () => {
   assert.deepEqual(getLinuxIdentity("linux", "x64"), { platform: "linux", architecture: "x86_64" });
-  assert.deepEqual(getLinuxIdentity("linux", "arm64"), { platform: "linux", architecture: "aarch64" });
-  assert.throws(() => getLinuxIdentity("win32", "x64"), /requires a Linux host/);
+  assert.deepEqual(getLinuxIdentity("linux", "arm64"), { platform: "linux", architecture: "aarch64", environment: "linux" });
+  assert.deepEqual(getLinuxIdentity("linux", "arm64", { TERMUX_VERSION: "0.118" }), { platform: "android", architecture: "aarch64", environment: "termux" });
+  assert.deepEqual(getLinuxIdentity("linux", "arm64", { PREFIX: "/data/data/com.termux/files/usr" }), { platform: "android", architecture: "aarch64", environment: "termux" });
+  assert.throws(() => getLinuxIdentity("win32", "x64"), /Linux-compatible host/);
   assert.throws(() => getLinuxIdentity("linux", "ia32"), /Unsupported Linux architecture/);
 });
 
@@ -67,7 +69,7 @@ test("Linux metrics return only finite non-negative allowlisted values", async (
   const metrics = await readLinuxMetrics();
   assert.ok(Number.isFinite(metrics.uptime_seconds) && metrics.uptime_seconds >= 0);
   for (const [key, value] of Object.entries(metrics)) {
-    assert.ok(["uptime_seconds", "memory_total_bytes", "memory_used_bytes", "disk_total_bytes", "disk_available_bytes", "load_1m", "cpu_percent"].includes(key));
+    assert.ok(["uptime_seconds", "memory_total_bytes", "memory_used_bytes", "disk_total_bytes", "disk_available_bytes", "load_1m", "cpu_percent", "battery_percent", "temperature_c"].includes(key));
     assert.ok(Number.isFinite(value) && value >= 0, key);
   }
   if (metrics.cpu_percent !== undefined) assert.ok(metrics.cpu_percent <= 100);
