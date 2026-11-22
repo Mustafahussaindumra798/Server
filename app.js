@@ -169,7 +169,7 @@ function metric(label, value, foot) {
 }
 function status(value) {
   const safe = String(value || "unknown").toLowerCase();
-  const healthy = ["online", "running", "healthy", "succeeded", "completed"].includes(safe);
+  const healthy = ["online", "running", "healthy", "succeeded", "completed", "active"].includes(safe);
   return '<span class="status ' + (healthy ? "" : "offline") + '">' + escapeHtml(value || "Unknown") + "</span>";
 }
 function table(headers, rows, empty) {
