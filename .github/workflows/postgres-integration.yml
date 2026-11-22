@@ -49,7 +49,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/003_node_enrollment.sql
       - name: Apply node heartbeat migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/004_node_heartbeat.sql
-      - name: Run PostgreSQL integration checks
+      - name: Apply safe node jobs migration\n        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/005_safe_node_jobs.sql\n      - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Run application tests
         run: npm test
