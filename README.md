@@ -4,7 +4,7 @@
 
 ## Current status
 
-This repository contains a live dashboard shell, a Node.js HTTP API, a Vercel serverless adapter, Supabase Auth verification, tenant RBAC, PostgreSQL migrations, and node enrollment/heartbeat/job APIs. The dashboard loads real workspace records through the protected API and refreshes every 15 seconds. No real workload deployment/runtime is claimed.
+This repository contains a live dashboard shell, a Node.js HTTP API, a Vercel serverless adapter, Supabase Auth verification, tenant RBAC, PostgreSQL migrations, and node enrollment/heartbeat/job APIs. The dashboard loads real workspace records through a combined protected snapshot and refreshes every 3 seconds while active. It includes application, deployment-request, member, node-enrollment and diagnostic-job management flows. Session refresh is automatic and stale access tokens are retried once. No real workload deployment/runtime is claimed.
 
 ## Run locally
 
