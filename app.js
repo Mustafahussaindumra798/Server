@@ -154,7 +154,7 @@ function nodeRows(nodes) {
     const battery = resources.battery_percent == null ? "" : " · " + Number(resources.battery_percent).toFixed(0) + "% battery";
     const temperature = resources.temperature_c == null ? "" : " · " + Number(resources.temperature_c).toFixed(1) + "°C";
     const actions = canManage && node.status === "pending"
-      ? '<div class="node-actions"><button type="button" class="button button-primary" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="button button-secondary" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
+      ? '<div class="node-actions"><button type="button" class="small-action" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="small-action" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
       : "";
     return "<tr><td>" + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
