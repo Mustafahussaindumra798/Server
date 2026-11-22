@@ -301,9 +301,17 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                 SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts,
                   available_at, lease_expires_at, created_at, updated_at
                 FROM jobs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100
-              ) AS job_row), '[]'::jsonb) AS jobs
+              ) AS job_row), '[]'::jsonb) AS jobs,
+              COALESCE((SELECT jsonb_agg(to_jsonb(member_row)) FROM (
+                SELECT membership.user_id, account.email, account.display_name,
+                  membership.role, membership.status, membership.created_at
+                FROM tenant_memberships AS membership
+                LEFT JOIN users AS account ON account.id = membership.user_id
+                WHERE membership.tenant_id = $1
+                ORDER BY membership.created_at ASC LIMIT 100
+              ) AS member_row), '[]'::jsonb) AS members
           `, [tenantId]);
-          return { status: 200, body: snapshot.rows[0] || { nodes: [], applications: [], deployments: [], jobs: [] } };
+          return { status: 200, body: snapshot.rows[0] || { nodes: [], applications: [], deployments: [], jobs: [], members: [] } };
         }
 
         if (resource === "nodes" && request.method === "GET") {
