@@ -32,7 +32,7 @@
 
 ## Independent control-plane deployment foundation
 - [x] Vercel Node.js Function adapter and health endpoint
-- [x] Explicit nested catch-all function for `/api/v1/*` after production routing verification exposed top-level catch-all mismatch
+- [x] Explicit versioned API handlers for `/api/v1/auth/me` and tenant subroutes, with nested catch-all fallback
 - [ ] Verify authenticated `/api/v1/auth/me` against production after deployment
 - [x] Bounded serverless PostgreSQL pool
 - [x] Supabase least-privilege runtime-role SQL
