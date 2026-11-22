@@ -52,7 +52,7 @@
 - [x] Linux x86_64/aarch64 diagnostic node agent
 - [x] Android/Termux environment detection and optional battery/thermal metric collection added
 - [x] Unit coverage added for Android/Termux identity detection
-- [ ] Verify GitHub Actions CI for latest Android/Termux and node-approval commits
+- [x] Verify GitHub Actions CI for latest Android/Termux and node-approval commits (run #122)
 - [x] Add tenant-scoped Owner/Admin node approval and rejection API
 - [x] Add dashboard Approve/Reject controls for pending nodes
 - [x] Rejection revokes active credentials and writes audit events
