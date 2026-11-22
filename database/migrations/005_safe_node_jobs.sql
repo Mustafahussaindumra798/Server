@@ -196,12 +196,12 @@ BEGIN
   IF p_status = 'running' AND v_job.status NOT IN ('leased', 'accepted') THEN RETURN; END IF;
 
   IF p_status IN ('succeeded', 'failed', 'rejected') THEN
-    UPDATE public.job_attempts
+    UPDATE public.job_attempts AS attempt
        SET finished_at = v_now,
            result_code = p_result_code,
            result_summary = p_result_summary
-     WHERE id = p_attempt_id AND job_id = p_job_id
-       AND node_id = p_node_id AND finished_at IS NULL;
+     WHERE attempt.id = p_attempt_id AND attempt.job_id = p_job_id
+       AND attempt.node_id = p_node_id AND attempt.finished_at IS NULL;
 
     IF p_status = 'failed' AND v_job.attempt_count < v_job.max_attempts THEN
       v_next_status := 'queued';
