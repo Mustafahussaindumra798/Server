@@ -112,7 +112,7 @@ test("enrollment stores the credential only after a successful control-plane res
   assert.equal(result.node.status, "pending");
   assert.equal(calls[0].url, "https://control.example.test/api/v1/nodes/enroll");
   assert.equal(JSON.parse(calls[0].options.body).platform, "linux");
-  assert.deepEqual(await loadAgentState(directory), { ...validState, enrolled_at: (await loadAgentState(directory)).enrolled_at });
+  assert.deepEqual(await loadAgentState(directory), { ...validState, node_name: "ci-linux-node", enrolled_at: (await loadAgentState(directory)).enrolled_at });
 });
 
 test("agent sends heartbeat and polls its own node queue", async (t) => {
