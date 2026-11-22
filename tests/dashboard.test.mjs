@@ -41,3 +41,19 @@ test("dashboard refreshes Supabase sessions before expiry and retries stale acce
   assert.match(app, /Preserve a valid refresh token during transient Auth\/network failures/);
   assert.match(app, /response\.status === 401/);
 });
+
+
+test("dashboard exposes create flows for applications, deployments and members", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  for (const id of ["create-application-button", "create-deployment-button", "create-member-button", "create-diagnostic-job"]) assert.match(html, new RegExp('id="' + id + '"'));
+  for (const route of ["/applications", "/deployments", "/members", "/jobs"]) assert.ok(app.includes(route));
+  assert.match(app, /Workspace members/);
+  assert.match(app, /workload execution is not enabled/i);
+});
+
+test("transient dashboard failures do not automatically erase a valid session", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /dashboard\/API outage after successful sign-in must not erase a valid refresh token/);
+  assert.match(app, /Preserve a valid refresh token during transient Auth\/network failures/);
+});
