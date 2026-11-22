@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment, heartbeat backend, and safe typed diagnostic job protocol are CI-verified. Linux node agent v0.1.0 is implemented; its compatibility CI is pending.
+**Current stage:** Milestone 2 — node enrollment, heartbeat backend, and safe typed diagnostic job protocol are CI-verified. Linux node agent v0.1.0 is implemented and its Ubuntu/Node compatibility matrix is CI-verified; no production certification is claimed.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
