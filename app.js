@@ -145,11 +145,18 @@ function table(headers, rows, empty) {
   return "<table><thead><tr>" + headers.map((header) => "<th>" + escapeHtml(header) + "</th>").join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
 }
 function nodeRows(nodes) {
+  const role = state.tenants.find((tenant) => tenant.id === state.tenantId)?.role;
+  const canManage = ["owner", "admin"].includes(role);
   return nodes.map((node) => {
     const resources = node.resources || {};
     const cpu = resources.cpu_percent == null ? "—" : Number(resources.cpu_percent).toFixed(1) + "% CPU";
     const memory = resources.memory_total_bytes == null ? "—" : formatBytes(resources.memory_used_bytes) + " / " + formatBytes(resources.memory_total_bytes);
-    return "<tr><td>" + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + "</td></tr>";
+    const battery = resources.battery_percent == null ? "" : " · " + Number(resources.battery_percent).toFixed(0) + "% battery";
+    const temperature = resources.temperature_c == null ? "" : " · " + Number(resources.temperature_c).toFixed(1) + "°C";
+    const actions = canManage && node.status === "pending"
+      ? '<div class="node-actions"><button type="button" class="button button-primary" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="button button-secondary" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
+      : "";
+    return "<tr><td>" + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
 }
 function applicationRows(apps) {
@@ -224,6 +231,23 @@ async function init() {
   }
   $("#signout-button").addEventListener("click", signOut);
   $("#refresh-button").addEventListener("click", refreshData);
+  $("#table-content").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-node-action]");
+    if (!button || button.disabled) return;
+    const action = button.dataset.nodeAction;
+    const nodeId = button.dataset.nodeId;
+    if (!["approve", "reject"].includes(action) || !nodeId) return;
+    if (action === "reject" && !window.confirm("Reject this node? Its current credentials will be revoked and it cannot reconnect.")) return;
+    button.disabled = true;
+    try {
+      await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/nodes/" + encodeURIComponent(nodeId) + "/" + action, { method: "POST" });
+      dashboardMessage(action === "approve" ? "Node approved." : "Node rejected and its credentials revoked.");
+      await refreshData();
+    } catch (error) {
+      dashboardMessage(error.message || "Unable to update node approval.", true);
+      button.disabled = false;
+    }
+  });
   $("#tenant-select").addEventListener("change", async (event) => {
     state.tenantId = event.target.value;
     $("#workspace-name").textContent = state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "Workspace";
