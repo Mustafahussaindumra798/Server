@@ -32,7 +32,7 @@
 
 ## Independent control-plane deployment foundation
 - [x] Vercel Node.js Function adapter and health endpoint
-- [x] Explicit versioned API handlers for `/api/v1/auth/me`, tenant collection, and tenant-scoped nested routes
+- [x] Explicit versioned API handler for `/api/v1/auth/me` plus a tenant-ID-scoped nested catch-all; tenant collection uses the versioned API adapter
 - [ ] Verify authenticated `/api/v1/auth/me` against production after deployment
 - [x] Bounded serverless PostgreSQL pool
 - [x] Supabase least-privilege runtime-role SQL
