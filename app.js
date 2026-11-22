@@ -126,7 +126,7 @@ function renderLogin() {
       state.user = user;
       await openDashboard();
     } catch (error) {
-      saveSession(null);
+      // A dashboard/API outage after successful sign-in must not erase a valid refresh token.
       $("#app-view").hidden = true;
       $("#auth-view").hidden = false;
       message(error.message || "Unable to sign in.", true);
@@ -327,7 +327,7 @@ async function init() {
   state.session = readSession();
   if (state.session?.access_token && state.session?.refresh_token) {
     try { await ensureFreshSession(); await openDashboard(); }
-    catch (error) { saveSession(null); $("#app-view").hidden = true; $("#auth-view").hidden = false; message(error.message || "Please sign in again.", true); }
+    catch (error) { $("#app-view").hidden = true; $("#auth-view").hidden = false; message(error.message || "Unable to restore the session. Retry when the connection is available.", true); }
   }
   $("#signout-button").addEventListener("click", signOut);
   $("#refresh-button").addEventListener("click", refreshData);
@@ -448,5 +448,8 @@ async function init() {
     if (window.innerWidth < 900) $("#sidebar").classList.remove("open");
   }));
   $("#menu-btn").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.session) void refreshData();
+  });
 }
 init().catch((error) => { message(error.message || "Dashboard initialization failed.", true); });
