@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import os from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import { getCapabilities, getLinuxIdentity, readLinuxMetrics, validateControlPlaneUrl } from "./src/agent/linux.mjs";
 import { defaultStateDirectory, loadAgentState, saveAgentState } from "./src/agent/state.mjs";
 
@@ -227,7 +228,7 @@ async function main() {
   process.exitCode = 2;
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     log("error", "Agent stopped", { error: error.message });
     process.exitCode = 1;
