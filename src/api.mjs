@@ -247,7 +247,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token);
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs)(?:\/([0-9a-f-]{36})\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)))?$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)))?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -274,6 +274,37 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         const tenantId = route[1];
         const resource = route[2];
         const role = await getMembership(client, tenantId, user.id);
+
+        if (resource === "overview" && request.method === "GET") {
+          requirePermission(role, "read");
+          // One database round trip for the complete dashboard snapshot.
+          const snapshot = await client.query(`
+            SELECT
+              COALESCE((SELECT jsonb_agg(to_jsonb(node_row)) FROM (
+                SELECT id, tenant_id, name, platform, architecture, agent_version,
+                  CASE WHEN status = 'revoked' THEN 'revoked'
+                       WHEN status = 'pending' THEN 'pending'
+                       WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline'
+                       ELSE status END AS status,
+                  last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources
+                FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200
+              ) AS node_row), '[]'::jsonb) AS nodes,
+              COALESCE((SELECT jsonb_agg(to_jsonb(app_row)) FROM (
+                SELECT id, tenant_id, name, desired_state, created_by, created_at, updated_at
+                FROM applications WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100
+              ) AS app_row), '[]'::jsonb) AS applications,
+              COALESCE((SELECT jsonb_agg(to_jsonb(deployment_row)) FROM (
+                SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, created_by, created_at
+                FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100
+              ) AS deployment_row), '[]'::jsonb) AS deployments,
+              COALESCE((SELECT jsonb_agg(to_jsonb(job_row)) FROM (
+                SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts,
+                  available_at, lease_expires_at, created_at, updated_at
+                FROM jobs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100
+              ) AS job_row), '[]'::jsonb) AS jobs
+          `, [tenantId]);
+          return { status: 200, body: snapshot.rows[0] || { nodes: [], applications: [], deployments: [], jobs: [] } };
+        }
 
         if (resource === "nodes" && request.method === "GET") {
           requirePermission(role, "read");
