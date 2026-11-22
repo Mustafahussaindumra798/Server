@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
-import { withNodeEnrollment, withUserTransaction } from "./db/pool.mjs";
+import { withNodeEnrollment, withNodeHeartbeat, withUserTransaction } from "./db/pool.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
