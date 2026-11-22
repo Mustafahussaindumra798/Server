@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
-import { withNodeEnrollment, withNodeHeartbeat, withUserTransaction } from "./db/pool.mjs";
+import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withUserTransaction } from "./db/pool.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -84,7 +84,27 @@ async function getMembership(client, tenantId, userId) {
   return result.rows[0].role;
 }
 
-export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
+
+function validateJobPayload(type, payload) {
+  // Only non-mutating, structured diagnostics are enabled in this protocol
+  // version. Never accept shell text, executable paths, scripts or argv arrays.
+  if (!["probe", "collect_metrics"].includes(type)) {
+    const error = new Error("type must be probe or collect_metrics.");
+    error.status = 400;
+    throw error;
+  }
+  if (!payload || Array.isArray(payload) || typeof payload !== "object" || Object.keys(payload).length !== 0) {
+    const error = new Error("payload must be an empty JSON object for this job type.");
+    error.status = 400;
+    throw error;
+  }
+  return {};
+}
+
+function nodeCredential(request) {
+  return String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1] || null;
+}
+\nexport function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
   let verifyAccessToken;
   try {
     verifyAccessToken = createOidcVerifier({
@@ -182,7 +202,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token);
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes)(?:\/([0-9a-f-]{36})\/credentials\/([0-9a-f-]{36})\/revoke)?$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs)(?:\/([0-9a-f-]{36})\/credentials\/([0-9a-f-]{36})\/revoke)?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -214,6 +234,62 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           requirePermission(role, "read");
           const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
           return { status: 200, body: { nodes: nodes.rows } };
+        }
+
+
+        if (resource === "jobs" && request.method === "GET") {
+          requirePermission(role, "read");
+          const jobs = await client.query(
+            "SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, available_at, lease_expires_at, created_at, updated_at FROM jobs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            [tenantId]
+          );
+          return { status: 200, body: { jobs: jobs.rows } };
+        }
+
+        if (resource === "jobs" && request.method === "POST") {
+          requirePermission(role, "manageJobs");
+          const body = await readJson(request);
+          const nodeId = requireUuid(body.node_id, "node_id");
+          const type = requireText(body.type, "type", 40).toLowerCase();
+          const payload = validateJobPayload(type, body.payload == null ? {} : body.payload);
+          const idempotencyKey = requireText(body.idempotency_key, "idempotency_key", 128);
+          if (idempotencyKey.length < 8 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+            const error = new Error("idempotency_key must be 8–128 characters using letters, numbers, dot, underscore, colon or hyphen.");
+            error.status = 400;
+            throw error;
+          }
+          const target = await client.query(
+            "SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds FROM nodes WHERE id = $1 AND tenant_id = $2 LIMIT 1",
+            [nodeId, tenantId]
+          );
+          if (!target.rows[0]) { const error = new Error("Node not found."); error.status = 404; throw error; }
+          const node = target.rows[0];
+          if (!node.approved_at || !["online", "degraded"].includes(node.status) || !node.last_seen_at ||
+              Date.now() - new Date(node.last_seen_at).getTime() > Number(node.heartbeat_interval_seconds) * 3000) {
+            const error = new Error("Node must be approved and recently online before it can receive jobs.");
+            error.status = 409;
+            throw error;
+          }
+          let created = await client.query(
+            "INSERT INTO jobs (tenant_id, node_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, $4::jsonb, $5) ON CONFLICT (tenant_id, node_id, idempotency_key) DO NOTHING RETURNING id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at",
+            [tenantId, nodeId, type, JSON.stringify(payload), idempotencyKey]
+          );
+          let status = 201;
+          if (!created.rows[0]) {
+            created = await client.query(
+              "SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs WHERE tenant_id = $1 AND node_id = $2 AND idempotency_key = $3 LIMIT 1",
+              [tenantId, nodeId, idempotencyKey]
+            );
+            if (!created.rows[0] || created.rows[0].type !== type || JSON.stringify(created.rows[0].payload) !== JSON.stringify(payload)) {
+              const error = new Error("idempotency_key has already been used for a different job.");
+              error.status = 409;
+              throw error;
+            }
+            status = 200;
+          } else {
+            await audit(client, tenantId, user.id, "node.job.created", "job", created.rows[0].id, { node_id: nodeId, type });
+          }
+          return { status, body: { job: created.rows[0] } };
         }
 
         if (resource === "applications" && request.method === "GET") {
