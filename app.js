@@ -1,7 +1,8 @@
 const $ = (selector) => document.querySelector(selector);
 const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
 const REFRESH_INTERVAL_MS = 15000;
-const state = { config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
+let refreshInFlight = null;
+const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
 
 export const pageMeta = {
   overview: ["Overview", "Infrastructure overview", "Live status from your registered infrastructure."],
@@ -30,12 +31,12 @@ function dashboardMessage(text, error = false) {
   element.classList.toggle("error-notice", error);
 }
 function readSession() {
-  try { return JSON.parse(sessionStorage.getItem(AUTH_STORAGE_KEY) || "null"); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "null"); } catch { return null; }
 }
 function saveSession(session) {
   state.session = session;
-  if (session) sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-  else sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  if (session) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  else localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 async function authRequest(path, body, accessToken = null) {
   const response = await fetch(state.config.supabaseUrl.replace(/\/$/, "") + "/auth/v1/" + path, {
@@ -54,12 +55,19 @@ async function signIn(email, password) {
   return result.user;
 }
 async function ensureFreshSession() {
-  if (!state.session?.access_token) throw new Error("Please sign in again.");
-  if (Number(state.session.expires_at || 0) > Math.floor(Date.now() / 1000) + 60) return state.session;
-  const result = await authRequest("token?grant_type=refresh_token", { refresh_token: state.session.refresh_token });
-  if (!result.access_token || !result.refresh_token) throw new Error("Session refresh failed. Please sign in again.");
-  saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user || state.session.user });
-  return state.session;
+  if (!state.session?.access_token || !state.session?.refresh_token) throw new Error("Please sign in again.");
+  if (Number(state.session.expires_at || 0) > Math.floor(Date.now() / 1000) + 90) return state.session;
+  if (!refreshInFlight) {
+    const refreshToken = state.session.refresh_token;
+    refreshInFlight = authRequest("token?grant_type=refresh_token", { refresh_token: refreshToken })
+      .then((result) => {
+        if (!result.access_token || !result.refresh_token) throw new Error("Session refresh failed. Please sign in again.");
+        saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user || state.session?.user });
+        return state.session;
+      }).catch((error) => { saveSession(null); throw error; })
+      .finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
 }
 async function api(path, options = {}) {
   await ensureFreshSession();
