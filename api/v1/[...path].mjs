@@ -1,5 +1,5 @@
-import { createApiHandler } from "../../../src/api.mjs";
-import { createDatabasePool } from "../../../src/db/pool.mjs";
+import { createApiHandler } from "../../src/api.mjs";
+import { createDatabasePool } from "../../src/db/pool.mjs";
 
 // Explicitly mount the versioned API subtree. Vercel's top-level catch-all
 // was not being selected for nested /api/v1/* requests in production.
