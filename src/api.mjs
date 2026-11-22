@@ -247,7 +247,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token);
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs)(?:\/([0-9a-f-]{36})\/credentials\/([0-9a-f-]{36})\/revoke)?$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs)(?:\/([0-9a-f-]{36})\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)))?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -279,6 +279,34 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           requirePermission(role, "read");
           const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
           return { status: 200, body: { nodes: nodes.rows } };
+        }
+
+        if (resource === "nodes" && route[3] && route[5] && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const nodeId = requireUuid(route[3], "node_id");
+          const action = route[5];
+          const target = await client.query(
+            "SELECT id, status, approved_at FROM nodes WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [nodeId, tenantId]
+          );
+          if (!target.rows[0]) { const error = new Error("Node not found."); error.status = 404; throw error; }
+          if (target.rows[0].status === "revoked") { const error = new Error("Revoked nodes cannot be changed."); error.status = 409; throw error; }
+          if (target.rows[0].status !== "pending") { const error = new Error("Only pending nodes can be approved or rejected."); error.status = 409; throw error; }
+          let updated;
+          if (action === "approve") {
+            updated = await client.query(
+              "UPDATE nodes SET approved_at = COALESCE(approved_at, now()), status = CASE WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END WHERE id = $1 AND tenant_id = $2 RETURNING id, status, approved_at, last_seen_at",
+              [nodeId, tenantId]
+            );
+          } else {
+            await client.query("UPDATE node_credentials SET revoked_at = COALESCE(revoked_at, now()) WHERE node_id = $1 AND revoked_at IS NULL", [nodeId]);
+            updated = await client.query(
+              "UPDATE nodes SET status = 'revoked', approved_at = NULL WHERE id = $1 AND tenant_id = $2 RETURNING id, status, approved_at, last_seen_at",
+              [nodeId, tenantId]
+            );
+          }
+          await audit(client, tenantId, user.id, action === "approve" ? "node.approved" : "node.rejected", "node", nodeId, { previous_status: "pending" });
+          return { status: 200, body: { node: updated.rows[0] } };
         }
 
 
