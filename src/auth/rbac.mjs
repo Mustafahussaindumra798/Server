@@ -5,7 +5,8 @@ export const PERMISSIONS = Object.freeze({
   manageApplications: ["owner", "admin"],
   manageMembers: ["owner", "admin"],
   manageNodes: ["owner", "admin"],
-  operateDeployments: ["owner", "admin", "operator"]
+  operateDeployments: ["owner", "admin", "operator"],
+  manageJobs: ["owner", "admin", "operator"]
 });
 
 export class AuthorizationError extends Error {
