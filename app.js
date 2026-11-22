@@ -176,6 +176,10 @@ function renderPage() {
   $("#page-subtitle").textContent = subtitle;
   document.querySelectorAll("[data-page]").forEach((link) => link.classList.toggle("active", link.dataset.page === state.page));
   const { nodes, applications, deployments, jobs } = state.data;
+  const currentRole = state.tenants.find((tenant) => tenant.id === state.tenantId)?.role;
+  const enrollmentButton = $("#create-enrollment-button");
+  if (enrollmentButton) enrollmentButton.hidden = !(state.page === "nodes" && ["owner", "admin"].includes(currentRole));
+
   const online = nodes.filter((node) => node.status === "online").length;
   const running = applications.filter((app) => app.desired_state === "running").length;
   const metrics = state.page === "overview"
@@ -231,6 +235,22 @@ async function init() {
   }
   $("#signout-button").addEventListener("click", signOut);
   $("#refresh-button").addEventListener("click", refreshData);
+  $("#create-enrollment-button").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button.disabled || !state.tenantId) return;
+    button.disabled = true;
+    try {
+      const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/enrollment-tokens", {
+        method: "POST", body: JSON.stringify({ expires_in_minutes: 30 })
+      });
+      const token = result.enrollment_token?.token;
+      if (!token) throw new Error("The API did not return an enrollment token.");
+      window.prompt("Copy this one-time enrollment token. It will not be shown again. Expires: " + new Date(result.enrollment_token.expires_at).toLocaleString(), token);
+      dashboardMessage("A one-time enrollment token was created. Use it on the Android/Termux device within 30 minutes.");
+    } catch (error) {
+      dashboardMessage(error.message || "Unable to create enrollment token.", true);
+    } finally { button.disabled = false; }
+  });
   $("#table-content").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-node-action]");
     if (!button || button.disabled) return;
