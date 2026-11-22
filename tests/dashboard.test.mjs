@@ -67,3 +67,15 @@ test("dashboard retains data and backs off after repeated API failures", async (
   assert.match(app, /Retrying in /);
   assert.match(app, /refreshData\(\{ force: true \}\)/);
 });
+
+
+test("overview and settings pages expose operational context", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(app, /Recent jobs/);
+  assert.match(app, /Session and workspace settings/);
+  assert.match(app, /Current access-token expiry/);
+  assert.match(app, /600 requests \/ minute/);
+  assert.match(html, /id="overview-extras"/);
+  assert.match(html, /data-page="settings"/);
+});
