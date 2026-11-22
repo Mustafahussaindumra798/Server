@@ -319,3 +319,15 @@ test("node job endpoints reject missing credentials and invalid lease bounds", a
   });
   assert.equal(invalid.status, 400);
 });
+
+
+test("owner can load the combined dashboard snapshot in one database query", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/overview", {
+    headers: { authorization: "Bearer " + makeToken() }
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload, { nodes: [], applications: [], deployments: [], jobs: [] });
+  assert.equal(api.pool.calls.filter((call) => call.sql.includes("AS nodes") && call.sql.includes("AS applications")).length, 1);
+});
