@@ -43,3 +43,19 @@ test("requires a valid HTTPS Supabase URL and public API key", () => {
   assert.throws(() => createSupabaseAuthVerifier({ supabaseUrl: "http://project-ref.supabase.co", apiKey }));
   assert.throws(() => createSupabaseAuthVerifier({ supabaseUrl, apiKey: "" }));
 });
+
+
+test("reuses a short-lived verified principal for frequent dashboard polls", async () => {
+  let calls = 0;
+  const verify = createSupabaseAuthVerifier({
+    supabaseUrl, apiKey,
+    fetchImpl: async () => {
+      calls += 1;
+      return { status: 200, ok: true, json: async () => ({ id: "cached-user", email: "cached@example.test" }) };
+    }
+  });
+  const first = await verify("same.valid.token");
+  const second = await verify("same.valid.token");
+  assert.equal(calls, 1);
+  assert.deepEqual(second, first);
+});
