@@ -51,6 +51,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/004_node_heartbeat.sql
       - name: Apply safe node jobs migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/005_safe_node_jobs.sql
+      - name: Apply fair job scheduling migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/006_fair_job_scheduling.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Run application tests
