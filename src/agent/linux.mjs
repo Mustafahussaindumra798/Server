@@ -6,12 +6,15 @@ import path from "node:path";
 const ARCHITECTURES = new Map([["x64", "x86_64"], ["arm64", "aarch64"]]);
 
 export function getLinuxIdentity(platform = process.platform, architecture = process.arch, env = process.env) {
-  if (platform !== "linux") throw new Error("Cloudexify node agent requires a Linux-compatible host.");
-  const normalized = ARCHITECTURES.get(architecture);
-  if (!normalized) throw new Error("Unsupported Linux architecture: " + architecture + ". Supported: x86_64 and aarch64.");
-  // Termux runs on the Android Linux kernel but must be identified separately
-  // for inventory and capability reporting. Do not infer Android from arm64 alone.
+  // Termux Node.js builds may report process.platform as "android" rather
+  // than "linux". Accept that platform only when the Termux environment is
+  // positively identified; never infer Termux from ARM architecture alone.
   const isTermux = Boolean(env.TERMUX_VERSION || env.PREFIX?.startsWith("/data/data/com.termux/files/usr"));
+  if (platform !== "linux" && !(platform === "android" && isTermux)) {
+    throw new Error("Cloudexify node agent requires Linux or Android running Termux.");
+  }
+  const normalized = ARCHITECTURES.get(architecture);
+  if (!normalized) throw new Error("Unsupported Linux/Android architecture: " + architecture + ". Supported: x86_64 and aarch64.");
   return { platform: isTermux ? "android" : "linux", architecture: normalized, environment: isTermux ? "termux" : "linux" };
 }
 
