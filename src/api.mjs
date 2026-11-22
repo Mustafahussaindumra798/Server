@@ -245,7 +245,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         throw error;
       }
       const token = getBearerToken(request);
-      const principal = await verifyAccessToken(token);
+      const principal = await verifyAccessToken(token, { cache: request.method === "GET" });
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
         const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)))?$/i);
 
