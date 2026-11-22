@@ -1,5 +1,5 @@
-import { createApiHandler } from "../../../../src/api.mjs";
-import { createDatabasePool } from "../../../../src/db/pool.mjs";
+import { createApiHandler } from "../../../src/api.mjs";
+import { createDatabasePool } from "../../../src/db/pool.mjs";
 
 // Explicit Vercel function for node enrollment. This avoids relying on the
 // nested catch-all route for the enrollment endpoint.
