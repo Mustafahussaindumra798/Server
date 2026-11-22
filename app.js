@@ -316,8 +316,12 @@ async function init() {
     }
   });
   $("#create-diagnostic-job").addEventListener("click", async () => {
-    const node = state.data.nodes.find((item) => item.status === "online");
-    if (!node) { dashboardMessage("No online node is available for diagnostics.", true); return; }
+    const onlineNodes = state.data.nodes.filter((item) => item.status === "online");
+    if (!onlineNodes.length) { dashboardMessage("No online node is available for diagnostics.", true); return; }
+    const nodeChoices = onlineNodes.map((item, index) => (index + 1) + ". " + item.name + " (" + item.platform + ", " + item.id + ")").join("\\n");
+    const selectedIndex = Number(window.prompt("Choose the exact target node by number:\\n" + nodeChoices, "1"));
+    if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > onlineNodes.length) return;
+    const node = onlineNodes[selectedIndex - 1];
     const type = window.prompt("Enter diagnostic type: probe or collect_metrics", "collect_metrics");
     if (!["probe", "collect_metrics"].includes(String(type || "").trim())) return;
     const button = $("#create-diagnostic-job"); button.disabled = true;
