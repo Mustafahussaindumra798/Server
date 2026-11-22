@@ -83,6 +83,15 @@ export async function withNodeJobClaim(pool, claim) {
   try {
     await client.query("BEGIN");
     transactionStarted = true;
+    const credential = await client.query(
+      "SELECT app_private.node_credential_is_valid($1, $2) AS valid",
+      [claim.nodeId, claim.credentialHash]
+    );
+    if (!credential.rows[0]?.valid) {
+      await client.query("COMMIT");
+      transactionStarted = false;
+      return null;
+    }
     const result = await client.query(
       "SELECT * FROM app_private.claim_node_jobs($1, $2, $3, $4)",
       [claim.nodeId, claim.credentialHash, claim.limit, claim.leaseSeconds]
