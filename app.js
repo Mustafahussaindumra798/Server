@@ -92,7 +92,12 @@ function renderLogin() {
       const user = await signIn($("#login-email").value.trim(), $("#login-password").value);
       state.user = user;
       await openDashboard();
-    } catch (error) { message(error.message || "Unable to sign in.", true); }
+    } catch (error) {
+      saveSession(null);
+      $("#app-view").hidden = true;
+      $("#auth-view").hidden = false;
+      message(error.message || "Unable to sign in.", true);
+    }
     finally { button.disabled = false; }
   });
 }
@@ -190,8 +195,6 @@ async function refreshData() {
   finally { state.loading = false; $("#refresh-button").disabled = false; }
 }
 async function openDashboard() {
-  $("#auth-view").hidden = true;
-  $("#app-view").hidden = false;
   const user = await api("/api/v1/auth/me");
   state.user = user.user || state.session.user;
   $("#profile-name").textContent = state.user.display_name || state.user.email || "Account";
@@ -199,6 +202,8 @@ async function openDashboard() {
   $("#profile-avatar").textContent = (state.user.display_name || state.user.email || "C").slice(0, 1).toUpperCase();
   await loadTenants();
   await loadData();
+  $("#auth-view").hidden = true;
+  $("#app-view").hidden = false;
   if (state.timer) clearInterval(state.timer);
   state.timer = setInterval(refreshData, REFRESH_INTERVAL_MS);
 }
@@ -215,7 +220,7 @@ async function init() {
   state.session = readSession();
   if (state.session?.access_token && state.session?.refresh_token) {
     try { await ensureFreshSession(); await openDashboard(); }
-    catch (error) { saveSession(null); message(error.message || "Please sign in again.", true); }
+    catch (error) { saveSession(null); $("#app-view").hidden = true; $("#auth-view").hidden = false; message(error.message || "Please sign in again.", true); }
   }
   $("#signout-button").addEventListener("click", signOut);
   $("#refresh-button").addEventListener("click", refreshData);
