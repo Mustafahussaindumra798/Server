@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and Linux/Termux agent foundations are implemented. Production login has been confirmed by the user. Android/Termux remains unqualified until a physical device completes enrollment, approval, heartbeat and metrics verification.
+**Current stage:** Milestone 2 — a physical Android/Termux device has enrolled, been approved, and sent accepted online heartbeats with seven resource metrics. The explicit Vercel heartbeat/job routes are deployed and CI is green. Live job claim/ack execution, dashboard metric rendering, stop/restart behavior and full Android qualification remain to be verified.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -28,7 +28,8 @@
 - [x] Configure Supabase Auth environment variables in Vercel (user confirmed)
 - [x] Provision the first owner identity in the user's Supabase project (user confirmed)
 - [x] Verify production login (user confirmed)
-- [ ] Verify live dashboard data using a real enrolled node
+- [x] Verify live dashboard node status using a real enrolled Android node (online heartbeat confirmed by user)
+- [ ] Verify resource metric values are rendered correctly in the dashboard
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
 ## Independent control-plane deployment foundation
@@ -40,7 +41,8 @@
 - [x] Vercel/Supabase deployment documentation
 - [x] User confirmed deployed `/api/health` endpoint is working
 - [x] Verify live authenticated dashboard login (user confirmed)
-- [ ] Verify live node data from a physical device
+- [x] Verify physical Android node enrollment, approval and online heartbeat
+- [ ] Verify end-to-end diagnostic job polling, claim and acknowledgement on the physical node
 
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment tokens with configurable expiry
@@ -59,8 +61,10 @@
 - [x] Approval sets recently heartbeating nodes online; stale nodes remain offline
 - [x] Add API tests for approval, rejection, authorization and audit events
 - [x] Add Owner/Admin dashboard action to create short-lived one-time node enrollment tokens
-- [ ] Qualify Android/Termux on the user's physical phone
-- [ ] Verify real heartbeat and resource metrics appear in dashboard
+- [x] Enroll and approve Android/Termux node on the user's physical phone; heartbeat accepted and node online
+- [ ] Verify `probe` and `collect_metrics` jobs complete end-to-end on the physical node
+- [ ] Verify real resource metric values appear in the dashboard
+- [ ] Verify stop → offline and restart → online transitions
 - [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
 
 ## Milestone 3 — Scheduler and deployment lifecycle
