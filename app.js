@@ -134,9 +134,8 @@ function renderLogin() {
     finally { button.disabled = false; }
   });
 }
-async function loadTenants() {
-  const result = await api("/api/v1/tenants");
-  state.tenants = Array.isArray(result.tenants) ? result.tenants : [];
+function loadTenants(tenants = []) {
+  state.tenants = Array.isArray(tenants) ? tenants : [];
   if (!state.tenants.some((tenant) => tenant.id === state.tenantId)) state.tenantId = state.tenants[0]?.id || null;
   const select = $("#tenant-select");
   select.innerHTML = state.tenants.map((tenant) => '<option value="' + escapeHtml(tenant.id) + '">' + escapeHtml(tenant.name) + " · " + escapeHtml(tenant.role) + "</option>").join("");
@@ -308,7 +307,7 @@ async function openDashboard() {
   $("#profile-name").textContent = state.user.display_name || state.user.email || "Account";
   $("#profile-email").textContent = state.user.email || "";
   $("#profile-avatar").textContent = (state.user.display_name || state.user.email || "C").slice(0, 1).toUpperCase();
-  await loadTenants();
+  loadTenants(user.tenants);
   await loadData();
   $("#auth-view").hidden = true;
   $("#app-view").hidden = false;
