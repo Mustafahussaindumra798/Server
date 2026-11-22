@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and a Linux diagnostic agent are implemented. The Supabase Auth/live-dashboard integration is now implemented in code; production verification remains gated on user-provided Vercel configuration and GitHub Actions.
+**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and a Linux diagnostic agent are implemented. The Supabase Auth/live-dashboard integration is implemented in code and CI-verified; production login remains gated on the user's Supabase Auth environment variables and first-owner provisioning.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -24,6 +24,7 @@
 - [x] Protected APIs for current user, tenant listing, nodes, applications, deployments and jobs
 - [x] Audit events for application, deployment and membership creation
 - [x] API, auth and RBAC automated tests
+- [x] GitHub Actions PostgreSQL integration workflow passed for the Supabase Auth/live dashboard implementation (run #92)
 - [ ] Configure Supabase Auth environment variables in Vercel
 - [ ] Provision the first owner identity in the user's Supabase project
 - [ ] Verify production login and live dashboard data
