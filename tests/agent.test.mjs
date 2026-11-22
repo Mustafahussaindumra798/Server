@@ -15,7 +15,7 @@ const validState = {
 };
 
 test("Linux identity accepts only supported 64-bit architectures", () => {
-  assert.deepEqual(getLinuxIdentity("linux", "x64"), { platform: "linux", architecture: "x86_64" });
+  assert.deepEqual(getLinuxIdentity("linux", "x64"), { platform: "linux", architecture: "x86_64", environment: "linux" });
   assert.deepEqual(getLinuxIdentity("linux", "arm64"), { platform: "linux", architecture: "aarch64", environment: "linux" });
   assert.deepEqual(getLinuxIdentity("linux", "arm64", { TERMUX_VERSION: "0.118" }), { platform: "android", architecture: "aarch64", environment: "termux" });
   assert.deepEqual(getLinuxIdentity("linux", "arm64", { PREFIX: "/data/data/com.termux/files/usr" }), { platform: "android", architecture: "aarch64", environment: "termux" });
