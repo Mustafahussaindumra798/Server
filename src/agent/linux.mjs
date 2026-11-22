@@ -5,18 +5,22 @@ import path from "node:path";
 
 const ARCHITECTURES = new Map([["x64", "x86_64"], ["arm64", "aarch64"]]);
 
-export function getLinuxIdentity(platform = process.platform, architecture = process.arch) {
-  if (platform !== "linux") throw new Error("Cloudexify Linux agent requires a Linux host.");
+export function getLinuxIdentity(platform = process.platform, architecture = process.arch, env = process.env) {
+  if (platform !== "linux") throw new Error("Cloudexify node agent requires a Linux-compatible host.");
   const normalized = ARCHITECTURES.get(architecture);
   if (!normalized) throw new Error("Unsupported Linux architecture: " + architecture + ". Supported: x86_64 and aarch64.");
-  return { platform: "linux", architecture: normalized };
+  // Termux runs on the Android Linux kernel but must be identified separately
+  // for inventory and capability reporting. Do not infer Android from arm64 alone.
+  const isTermux = Boolean(env.TERMUX_VERSION || env.PREFIX?.startsWith("/data/data/com.termux/files/usr"));
+  return { platform: isTermux ? "android" : "linux", architecture: normalized, environment: isTermux ? "termux" : "linux" };
 }
 
-export function getCapabilities() {
+export function getCapabilities(identity = getLinuxIdentity()) {
   return {
     agent_protocol: 1,
     diagnostics: ["probe", "collect_metrics"],
-    service_manager: existsSync("/run/systemd/system") ? "systemd" : null,
+    service_manager: identity.platform === "linux" && existsSync("/run/systemd/system") ? "systemd" : null,
+    environment: identity.environment,
     container_runtime: null,
     workload_execution: false
   };
@@ -74,6 +78,17 @@ export async function readLinuxMetrics({ procRoot = "/proc", diskPath = "/" } = 
     const cpu = await readCpuPercent({ procRoot });
     if (cpu !== null) metrics.cpu_percent = cpu;
   } catch { /* CPU counters may be unavailable in restricted containers */ }
+  // Android exposes battery readings through the Linux power_supply sysfs API
+  // on many devices. Omit them when Termux/device permissions do not allow it.
+  try {
+    const battery = Number((await readFile("/sys/class/power_supply/battery/capacity", "utf8")).trim());
+    if (Number.isFinite(battery) && battery >= 0 && battery <= 100) metrics.battery_percent = battery;
+  } catch { /* battery sysfs may be unavailable on some Android devices */ }
+  try {
+    const rawTemperature = Number((await readFile("/sys/class/thermal/thermal_zone0/temp", "utf8")).trim());
+    const temperature = rawTemperature > 1000 ? rawTemperature / 1000 : rawTemperature;
+    if (Number.isFinite(temperature) && temperature >= 0 && temperature <= 150) metrics.temperature_c = Math.round(temperature * 10) / 10;
+  } catch { /* thermal sysfs may be unavailable or permission restricted */ }
   return metrics;
 }
 
