@@ -12,9 +12,11 @@ Set these Vercel environment variables for Production and Preview as appropriate
 
 Never put the Supabase secret/service-role key in the browser or Vercel variables used by the dashboard. The browser receives only the publishable/anon key from `GET /api/config`.
 
-The dashboard uses Supabase Auth email/password sign-in. Accounts are provisioned by an administrator; public self-registration is not enabled. Browser sessions are held in `sessionStorage` and refreshed through Supabase Auth. Sign-out clears the browser session and attempts to revoke the Auth session.
+The dashboard uses Supabase Auth email/password sign-in. Accounts are provisioned by an administrator; public self-registration is not enabled. Browser sessions are persisted in `localStorage` and refreshed through Supabase Auth before access-token expiry; a stale-token 401 triggers one refresh-and-retry. Transient API/Auth network failures do not erase a valid refresh token. Sign-out clears the browser session and attempts to revoke the Auth session.
 
-The API validates each access token by calling the configured project's `/auth/v1/user` endpoint with the public API key and bearer token. This delegates signature and expiry verification to Supabase Auth and supports projects using either asymmetric signing keys or the legacy symmetric signing configuration. Auth-provider network failures return 503; invalid sessions return 401.
+Supabase sessions are normally persistent until sign-out or a configured security timeout. The access-token JWT is short-lived (the default is one hour); the rotating refresh token obtains new access tokens without asking the user to log in again. Keep JWT expiry at the recommended one-hour default rather than extending bearer-token validity just to keep the UI signed in. Review **Authentication → Settings → Sessions** if the project has a time-box or inactivity timeout configured; disabling those limits allows sessions to persist until sign-out, subject to Supabase's security rules. Supabase documents session controls and defaults in its [User Sessions guide](https://supabase.com/docs/guides/auth/sessions).
+
+The API validates each access token by calling the configured project's `/auth/v1/user` endpoint with the public API key and bearer token. This delegates signature and expiry verification to Supabase Auth and supports projects using either asymmetric signing keys or the legacy symmetric signing configuration. Successful read-only token verification is cached for at most 10 seconds per warm function instance to reduce polling latency; write requests always verify against Supabase Auth without using that cache. Auth-provider network failures return 503; invalid sessions return 401.
 
 ## Provisioning the first Cloudexify user
 
@@ -65,12 +67,18 @@ After Supabase validates the bearer token, the API maps `issuer|sub` to the exis
 Existing routes include:
 - `GET /api/v1/auth/me`
 - `GET /api/v1/tenants`
+- `GET /api/v1/tenants/:tenantId/overview` (nodes, applications, deployments, jobs and members in one snapshot)
 - `GET /api/v1/tenants/:tenantId/nodes`
 - `GET /api/v1/tenants/:tenantId/applications`
 - `GET /api/v1/tenants/:tenantId/deployments`
 - `GET /api/v1/tenants/:tenantId/jobs`
+- `GET /api/v1/tenants/:tenantId/members`
+- `POST /api/v1/tenants/:tenantId/applications`
+- `POST /api/v1/tenants/:tenantId/deployments` (creates a control-plane revision only; no workload runtime)
+- `POST /api/v1/tenants/:tenantId/jobs` (currently targets a selected node; pool scheduling is a later milestone)
+- `POST /api/v1/tenants/:tenantId/members`
 
-The dashboard refreshes protected API data every 15 seconds and also offers manual refresh. It does not subscribe directly to private database tables: the current RLS model depends on transaction-local `app.user_id`, not browser `auth.uid()`. Direct Realtime table subscriptions would require a separately designed and reviewed authorization bridge. The browser never receives the database connection string or service-role key.
+The dashboard refreshes protected API data every three seconds while active and also offers manual refresh. The startup flow reuses the tenant list returned by `/api/v1/auth/me` to avoid an unnecessary extra API round-trip. It does not subscribe directly to private database tables: the current RLS model depends on transaction-local `app.user_id`, not browser `auth.uid()`. Direct Realtime table subscriptions would require a separately designed and reviewed authorization bridge. The browser never receives the database connection string or service-role key.
 
 ## Legacy OIDC compatibility
 
