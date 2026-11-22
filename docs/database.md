@@ -17,7 +17,9 @@ The integration script verifies:
 - cross-tenant inserts are rejected by RLS;
 - an authenticated node sees only its own node and jobs;
 - a node cannot read stored credential verifiers;
-- an agent can append an audit event for its own tenant/node identity;\n- approved nodes can claim typed jobs using credential-bound leases;\n- job attempts are isolated, failed jobs retry with bounded backoff, and stale leases cannot acknowledge newer attempts.
+- an agent can append an audit event for its own tenant/node identity;
+- approved nodes can claim typed jobs using credential-bound leases;
+- job attempts are isolated, failed jobs retry with bounded backoff, and stale leases cannot acknowledge newer attempts.
 
 The workflow creates a temporary, non-superuser, NOBYPASSRLS database role and fixed test-only fixtures. It does not connect to a production database or use real credentials.
 
