@@ -395,7 +395,7 @@ async function init() {
   $("#create-application-button").addEventListener("click", () => showResourceDialog({
     title: "Create application",
     description: "Register an application in this workspace. This creates a control-plane record; it does not deploy or run code yet.",
-    fields: [{ name: "name", label: "Application name", required: true, maxLength: 100, placeholder: "e.g. Cloudexify Website" }],
+    fields: [{ name: "name", label: "Application name", required: true, maxLength: 100, placeholder: "e.g. customer-portal" }],
     submitLabel: "Create application",
     onSubmit: async (form) => {
       await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/applications", { method: "POST", body: JSON.stringify({ name: String(form.get("name") || "").trim() }) });
