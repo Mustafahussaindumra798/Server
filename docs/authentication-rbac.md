@@ -1,119 +1,77 @@
-# Authentication and tenant RBAC
+# Supabase Auth and tenant RBAC
 
-**Status:** API foundation implemented. Requires an OIDC provider, provisioned users and a PostgreSQL runtime before it can serve authenticated requests.
+**Status:** Supabase Auth verification is integrated into the API. A user must still be provisioned in the Cloudexify control-plane database and assigned an active tenant membership before the dashboard can display workspace data.
 
-## Authentication model
+## Supabase Auth configuration
 
-The API accepts OIDC access tokens in the HTTP `Authorization: Bearer <token>` header. It verifies the RS256 signature against the configured provider JWKS, then validates issuer, audience, subject, expiry and optional not-before time. Keys are cached for five minutes and unknown key IDs trigger a JWKS refresh.
+Set these Vercel environment variables for Production and Preview as appropriate:
 
-Required environment:
-- `DATABASE_URL`: PostgreSQL connection string.
-- `OIDC_ISSUER`: exact issuer URL expected in the token.
-- `OIDC_AUDIENCE`: API audience expected in the token.
-- `OIDC_JWKS_URI`: trusted HTTPS JWKS endpoint for that issuer.
-- `CORS_ORIGINS`: optional comma-separated exact browser origins. No wildcard or credentialed CORS is enabled.
+- `SUPABASE_URL`: the project URL, for example `https://YOUR_PROJECT_REF.supabase.co`.
+- `SUPABASE_PUBLISHABLE_KEY`: the project's publishable key. A legacy `SUPABASE_ANON_KEY` is also accepted.
+- `DATABASE_URL`: the restricted `cloudexify_runtime` transaction-pooler connection string.
 
-Identity mapping uses the stable composite string `issuer|subject` in `users.identity_subject`. A valid identity that has no pre-provisioned user row is denied; this API does not auto-create accounts, accept client-supplied user IDs, or trust role claims from the token.
+Never put the Supabase secret/service-role key in the browser or Vercel variables used by the dashboard. The browser receives only the publishable/anon key from `GET /api/config`.
 
-Apply migrations in order to a new database:
-1. `database/migrations/001_initial_schema.sql`
-2. `database/migrations/002_auth_identity_context.sql`
+The dashboard uses Supabase Auth email/password sign-in. Accounts are provisioned by an administrator; public self-registration is not enabled. Browser sessions are held in `sessionStorage` and refreshed through Supabase Auth. Sign-out clears the browser session and attempts to revoke the Auth session.
 
-The second migration adds a narrow RLS read policy that permits identity resolution only for the exact `app.identity_subject` set by the API inside a transaction. After lookup, the API sets `app.user_id` and clears the identity-subject context before executing tenant queries. Keep the database credential private and use a non-owner, non-superuser runtime role without `BYPASSRLS`.
+The API validates each access token by calling the configured project's `/auth/v1/user` endpoint with the public API key and bearer token. This delegates signature and expiry verification to Supabase Auth and supports projects using either asymmetric signing keys or the legacy symmetric signing configuration. Auth-provider network failures return 503; invalid sessions return 401.
 
-## API routes
+## Provisioning the first Cloudexify user
 
-All routes require a verified OIDC bearer token.
-
-| Method | Route | Permission |
-|---|---|---|
-| GET | `/api/v1/auth/me` | Authenticated user |
-| GET | `/api/v1/tenants` | Active memberships |
-| GET | `/api/v1/tenants/:tenantId/applications` | Any active tenant role |
-| POST | `/api/v1/tenants/:tenantId/applications` | Owner, Admin |
-| POST | `/api/v1/tenants/:tenantId/deployments` | Owner, Admin, Operator |
-| GET | `/api/v1/tenants/:tenantId/members` | Any active tenant role |
-| POST | `/api/v1/tenants/:tenantId/members` | Owner, Admin |
-| GET | `/api/v1/tenants/:tenantId/jobs` | Any active tenant role |
-| POST | `/api/v1/tenants/:tenantId/jobs` | Owner, Admin, Operator |
-
-Membership creation accepts an existing `user_id`. Owner may assign Admin, Operator or Viewer. Admin may assign Operator or Viewer. This first version does not implement invitations, ownership transfer, membership removal, password login, browser cookies, or platform-admin access.
-
-## Role matrix
-
-| Capability | Owner | Admin | Operator | Viewer |
-|---|---:|---:|---:|---:|
-| Read tenant resources | Yes | Yes | Yes | Yes |
-| Create applications | Yes | Yes | No | No |
-| Request deployments | Yes | Yes | Yes | No |
-| Add tenant members | Yes | Yes* | No | No |
-
-* Admin cannot grant Admin or Owner. No tenant role is a platform-wide administrator.
-
-## Security behavior
-
-- Roles come from active PostgreSQL membership rows, never token claims or request bodies.
-- Tenant IDs are validated and membership is checked inside the same database transaction as the operation.
-- User context uses transaction-local PostgreSQL settings, so pooled connections do not retain the previous request's identity.
-- Database queries are parameterized; JSON bodies are limited to 64 KiB.
-- Errors do not disclose whether a cross-tenant resource exists.
-- API responses use `Cache-Control: no-store`; CORS requires exact configured origins.
-- User creation and first-owner bootstrap remain an explicit trusted provisioning operation.
-- The OIDC provider must issue access tokens intended for this API. Do not send ID tokens or tokens from unrelated audiences.
-
-## Run
-
-Install dependencies, apply both migrations, provision a user row with `identity_subject = '<issuer>|<subject>'`, configure the environment variables, then run:
-
-    npm install
-    npm start
-
-The dashboard remains available without API configuration; authenticated `/api/v1` routes return 503 until database and OIDC settings are present.
-
-
-## Database runtime grants
-
-Create a dedicated `cloudexify_runtime` role outside the application migration. It must not own the tables, be a superuser, or have `BYPASSRLS`. Grant only the current API's required access:
+1. In Supabase Dashboard → Authentication → Users, create or invite the administrator account.
+2. Copy the user's Auth UID from that account's details.
+3. In SQL Editor, use the following template after replacing the three clearly marked values. Run it only after confirming the user and tenant do not already exist.
 
 ```sql
-GRANT CONNECT ON DATABASE cloudexify TO cloudexify_runtime;
-GRANT USAGE ON SCHEMA public, app_private TO cloudexify_runtime;
-GRANT SELECT ON users, tenants, tenant_memberships, applications, deployments, nodes, node_credentials, jobs, job_attempts TO cloudexify_runtime;
-GRANT INSERT ON tenant_memberships, applications, deployments, audit_events, enrollment_tokens, jobs TO cloudexify_runtime;
-GRANT UPDATE ON nodes, node_credentials TO cloudexify_runtime;
-GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;
-GRANT EXECUTE ON FUNCTION app_private.node_credential_is_valid(uuid, text) TO cloudexify_runtime;
-GRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid, text, integer, integer) TO cloudexify_runtime;
-GRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid, text, uuid, uuid, uuid, text, text, text) TO cloudexify_runtime;
+BEGIN;
+
+-- Replace the Auth UID, email, display name, tenant name and slug.
+WITH auth_user AS (
+  SELECT
+    'REPLACE_WITH_AUTH_USER_UUID'::uuid AS auth_uid,
+    'admin@example.com'::text AS email,
+    'Cloudexify Admin'::text AS display_name,
+    'Cloudexify'::text AS tenant_name,
+    'cloudexify'::text AS tenant_slug
+),
+new_user AS (
+  INSERT INTO public.users (identity_subject, email, display_name)
+  SELECT 'https://YOUR_PROJECT_REF.supabase.co/auth/v1|' || auth_uid::text, email, display_name
+  FROM auth_user
+  ON CONFLICT (identity_subject) DO UPDATE
+    SET email = EXCLUDED.email, display_name = EXCLUDED.display_name
+  RETURNING id
+),
+new_tenant AS (
+  INSERT INTO public.tenants (name, slug)
+  SELECT tenant_name, tenant_slug FROM auth_user
+  ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id
+)
+INSERT INTO public.tenant_memberships (tenant_id, user_id, role, status)
+SELECT new_tenant.id, new_user.id, 'owner', 'active'
+FROM new_tenant CROSS JOIN new_user
+ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = 'owner', status = 'active';
+
+COMMIT;
 ```
 
-Replace `cloudexify` with the actual database name. Do not grant broad UPDATE or DELETE access. Extend privileges only alongside a reviewed API feature and its tests.
+Use the exact issuer prefix for your project: `SUPABASE_URL` without a trailing slash, followed by `/auth/v1`. The `identity_subject` must exactly match that issuer, a pipe character, and the Supabase Auth UID. Do not create a second tenant if the intended tenant already exists. Review the values before executing the template.
 
+## Tenant isolation and API authorization
 
-## Node enrollment and credential lifecycle
+After Supabase validates the bearer token, the API maps `issuer|sub` to the existing `public.users.identity_subject` row. It then sets the transaction-local `app.user_id` context and runs existing tenant membership/RBAC checks. No role is trusted from browser input or editable user metadata.
 
-Owner/Admin creates a one-time enrollment token:
+Existing routes include:
+- `GET /api/v1/auth/me`
+- `GET /api/v1/tenants`
+- `GET /api/v1/tenants/:tenantId/nodes`
+- `GET /api/v1/tenants/:tenantId/applications`
+- `GET /api/v1/tenants/:tenantId/deployments`
+- `GET /api/v1/tenants/:tenantId/jobs`
 
-    POST /api/v1/tenants/:tenantId/enrollment-tokens
+The dashboard refreshes protected API data every 15 seconds and also offers manual refresh. It does not subscribe directly to private database tables: the current RLS model depends on transaction-local `app.user_id`, not browser `auth.uid()`. Direct Realtime table subscriptions would require a separately designed and reviewed authorization bridge. The browser never receives the database connection string or service-role key.
 
-Optional body: `{"expires_in_minutes":30}` (5–1440 minutes). The raw token is returned once; only its SHA-256 hash is stored.
+## Legacy OIDC compatibility
 
-The node enrolls using:
-
-    POST /api/v1/nodes/enroll
-
-Body: `{"enrollment_token":"...","name":"edge-01","platform":"android","architecture":"aarch64","agent_version":"0.1.0","capabilities":{}}`
-
-The one-time token is the bootstrap proof. PostgreSQL atomically consumes it, creates a pending node, issues a unique 90-day credential and writes an audit event. The credential secret is returned once; only its SHA-256 hash is stored. Never log or persist the secret in plaintext. Credential-authenticated heartbeat and typed node job polling/acknowledgement are implemented; see [Safe node jobs](node-jobs.md).
-
-Owner/Admin revokes a credential using:
-
-    POST /api/v1/tenants/:tenantId/nodes/:nodeId/credentials/:credentialId/revoke
-
-The operation is tenant-scoped and audited. If no other active, unexpired credential remains, the node status becomes `revoked`.
-
-Apply migration 003 after 001 and 002. Grant the runtime role the narrow permissions it needs, including:
-
-    GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, jsonb, text) TO cloudexify_runtime;
-
-The function is SECURITY DEFINER with a fixed search_path and is not executable by PUBLIC. Rate limiting and credential-authenticated node APIs remain future work.
+If Supabase Auth variables are absent and all three `OIDC_ISSUER`, `OIDC_AUDIENCE`, and `OIDC_JWKS_URI` values are configured, the API retains the previous RS256 OIDC verifier. When Supabase Auth is configured, it takes precedence.

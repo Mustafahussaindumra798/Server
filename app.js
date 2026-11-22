@@ -1,32 +1,233 @@
-export const initialState={
-nodes:[{id:"node-01",name:"android-node-01",platform:"Android / Termux",cpu:4,memory:4,status:"Online"},{id:"node-02",name:"ubuntu-node-01",platform:"Ubuntu Linux",cpu:2,memory:4,status:"Online"},{id:"node-03",name:"android-node-02",platform:"Android / Termux",cpu:8,memory:4,status:"Online"},{id:"node-04",name:"windows-node-01",platform:"Windows",cpu:4,memory:8,status:"Offline"}],
-apps:[{id:"app-01",name:"Cloudexify Website",stack:"Next.js",nodeId:"node-01",status:"Running",domain:"cloudexify.site"},{id:"app-02",name:"API Gateway",stack:"Node.js",nodeId:"node-02",status:"Running",domain:"api.cloudexify.site"},{id:"app-03",name:"Internship Portal",stack:"React",nodeId:"node-03",status:"Running",domain:"internship.cloudexify.site"},{id:"app-04",name:"ToolForge",stack:"Vite",nodeId:"node-02",status:"Running",domain:"toolforge.cloudexify.site"},{id:"app-05",name:"Analytics Worker",stack:"Node.js",nodeId:"node-02",status:"Stopped",domain:"—"},{id:"app-06",name:"Preview App",stack:"Static",nodeId:null,status:"Stopped",domain:"—"}],
-deployments:[{id:"dep-1042",appId:"app-01",version:"v1.8.2",status:"Succeeded",target:"node-01",created:"Today, 10:42"},{id:"dep-1041",appId:"app-03",version:"v2.1.0",status:"Succeeded",target:"node-03",created:"Today, 09:18"},{id:"dep-1040",appId:"app-02",version:"v1.4.6",status:"Succeeded",target:"node-02",created:"Yesterday, 16:30"}],
-routes:[{id:"route-01",domain:"cloudexify.site",appId:"app-01",tls:true,status:"Active"},{id:"route-02",domain:"api.cloudexify.site",appId:"app-02",tls:true,status:"Active"},{id:"route-03",domain:"internship.cloudexify.site",appId:"app-03",tls:true,status:"Active"},{id:"route-04",domain:"toolforge.cloudexify.site",appId:"app-04",tls:true,status:"Active"}],
-activity:[{title:"Node heartbeat received",detail:"android-node-01 · simulated",time:"2 min ago",type:"Node"},{title:"Deployment completed",detail:"Cloudexify Website · demo",time:"18 min ago",type:"Deployment"},{title:"Node registered",detail:"ubuntu-node-01 · simulated",time:"1 hour ago",type:"Node"},{title:"Health check passed",detail:"API Gateway · demo",time:"2 hours ago",type:"Application"}]};
-export const pageMeta={overview:["Overview","Infrastructure overview","Monitor your devices and hosted applications from one place."],nodes:["Compute nodes","Compute nodes","Inspect and manage enrolled sample devices."],applications:["Applications","Hosted applications","Review application placement and simulate lifecycle actions."],deployments:["Deployments","Deployment history","Create demo releases and roll back a revision."],network:["Network & routing","Network & routing","Review sample domain routes and TLS configuration."],activity:["Activity log","Activity log","Search and filter simulated platform events."],settings:["Settings","Platform settings","Manage local dashboard preferences."]};
-export const escapeHtml=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-export function filterRecords(records,query="",fields=[]){const q=query.trim().toLowerCase();return q?records.filter(r=>fields.some(k=>String(r[k]??"").toLowerCase().includes(q))):[...records]}
-export const getNodeResources=n=>n.cpu+" cores · "+n.memory+" GB";
-const state=structuredClone(initialState),$=s=>document.querySelector(s);let page="overview",toastTimer;
-const appName=id=>state.apps.find(a=>a.id===id)?.name||"Unknown app",nodeName=id=>state.nodes.find(n=>n.id===id)?.name||"Unassigned";
-function toast(s){const e=$("#toast");if(!e)return;e.textContent=s;e.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.classList.remove("show"),2500)}
-function log(title,detail,type="System"){state.activity.unshift({title,detail,time:"Just now",type});preview()}
-function preview(){const e=$("#activity-list");if(e)e.innerHTML=state.activity.slice(0,4).map(a=>'<div class="activity-item"><span class="activity-symbol">◉</span><div><b>'+escapeHtml(a.title)+'</b><p>'+escapeHtml(a.detail)+'</p><time>'+escapeHtml(a.time)+'</time></div></div>').join("")}
-function overview(){const online=state.nodes.filter(n=>n.status==="Online").length,running=state.apps.filter(a=>a.status==="Running").length;$("#metric-nodes").innerHTML=online+' <small>/ '+state.nodes.length+'</small>';$("#metric-apps").innerHTML=running+' <small>/ '+state.apps.length+'</small>';$("#nav-node-count").textContent=state.nodes.length;$("#node-table").innerHTML=state.nodes.slice(0,4).map(n=>'<tr><td>'+escapeHtml(n.name)+'<small class="subcell">'+n.id+'</small></td><td>'+escapeHtml(n.platform)+'</td><td>'+getNodeResources(n)+'</td><td><span class="status '+(n.status==="Online"?"":"offline")+'">'+n.status+'</span></td><td>···</td></tr>').join("");$("#app-grid").innerHTML=state.apps.map(a=>'<div class="app-card"><div class="app-logo">'+escapeHtml(a.name[0])+'</div><div class="app-meta"><b>'+escapeHtml(a.name)+'</b><small>'+escapeHtml(a.stack)+' · '+escapeHtml(nodeName(a.nodeId))+'</small></div><span class="app-state '+(a.status==="Running"?"":"stopped")+'">'+a.status+'</span></div>').join("");preview()}
-function nodesView(){return '<section class="panel page-panel"><div class="panel-heading"><div><h2>Registered devices</h2><p>'+state.nodes.length+' sample nodes</p></div><button class="primary-btn" data-action="add-node">＋ Register sample node</button></div><div class="toolbar"><input id="node-search" type="search" placeholder="Search nodes or platforms" aria-label="Search nodes"><span class="muted-note">Actions affect demo state only</span></div><div class="table-wrap"><table><thead><tr><th>NODE</th><th>PLATFORM</th><th>RESOURCES</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody id="nodes-rows">'+state.nodes.map(n=>nodeRow(n)).join("")+'</tbody></table></div></section>'}
-function nodeRow(n){return '<tr><td>'+escapeHtml(n.name)+'<small class="subcell">'+n.id+'</small></td><td>'+escapeHtml(n.platform)+'</td><td>'+getNodeResources(n)+'</td><td><span class="status '+(n.status==="Online"?"":"offline")+'">'+n.status+'</span></td><td><button class="small-action" data-action="node-toggle" data-id="'+n.id+'">Set '+(n.status==="Online"?"offline":"online")+'</button></td></tr>'}
-function appsView(){return '<section class="panel page-panel"><div class="panel-heading"><div><h2>Application inventory</h2><p>'+state.apps.length+' sample workloads</p></div><span class="demo-chip">SIMULATED LIFECYCLE</span></div><div class="managed-grid">'+state.apps.map(a=>'<article class="managed-card"><div class="managed-card-top"><span class="app-logo">'+escapeHtml(a.name[0])+'</span><span class="app-state '+(a.status==="Running"?"":"stopped")+'">'+a.status+'</span></div><h3>'+escapeHtml(a.name)+'</h3><p>'+escapeHtml(a.stack)+' · '+escapeHtml(nodeName(a.nodeId))+'</p><div class="managed-meta"><span>Domain</span><b>'+escapeHtml(a.domain)+'</b></div><button class="secondary-btn full-btn" data-action="app-toggle" data-id="'+a.id+'">'+(a.status==="Running"?"Stop application":"Start application")+'</button></article>').join("")+'</div></section>'}
-function deploymentsView(){return '<section class="panel page-panel"><div class="panel-heading"><div><h2>Release activity</h2><p>Simulated releases and rollback history</p></div><button class="primary-btn" data-action="deploy">＋ New deployment</button></div><div class="notice inline-notice"><b>Demo only</b><p>No source code is built and no device receives a workload.</p></div><div class="table-wrap"><table><thead><tr><th>ID</th><th>APPLICATION</th><th>VERSION</th><th>TARGET</th><th>STATUS</th><th>CREATED</th><th>ACTION</th></tr></thead><tbody>'+state.deployments.map(d=>'<tr><td>'+d.id+'</td><td>'+escapeHtml(appName(d.appId))+'</td><td>'+escapeHtml(d.version)+'</td><td>'+escapeHtml(nodeName(d.target))+'</td><td><span class="app-state">'+d.status+'</span></td><td>'+d.created+'</td><td><button class="small-action" data-action="rollback" data-id="'+d.id+'">Rollback</button></td></tr>').join("")+'</tbody></table></div></section>'}
-function networkView(){return '<section class="panel page-panel"><div class="panel-heading"><div><h2>Application routes</h2><p>Sample domain mappings and TLS status</p></div><span class="demo-chip">LOCAL CONFIGURATION</span></div><div class="table-wrap"><table><thead><tr><th>DOMAIN</th><th>APPLICATION</th><th>SECURITY</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>'+state.routes.map(r=>'<tr><td>'+escapeHtml(r.domain)+'</td><td>'+escapeHtml(appName(r.appId))+'</td><td>TLS '+(r.tls?"enabled":"disabled")+'</td><td><span class="app-state '+(r.status==="Active"?"":"stopped")+'">'+r.status+'</span></td><td><button class="small-action" data-action="route-toggle" data-id="'+r.id+'">'+(r.status==="Active"?"Disable":"Enable")+'</button></td></tr>').join("")+'</tbody></table></div><div class="network-note"><b>Networking is not connected.</b><span>No DNS, proxy or certificate changes are made.</span></div></section>'}
-function activityRows(list){return list.length?list.map(a=>'<article class="event-row"><span class="activity-symbol">◉</span><div><b>'+escapeHtml(a.title)+'</b><p>'+escapeHtml(a.detail)+'</p></div><span class="event-type">'+escapeHtml(a.type)+'</span><time>'+escapeHtml(a.time)+'</time></article>').join(""):'<div class="empty-state">No matching events found.</div>'}
-function activityView(){return '<section class="panel page-panel"><div class="panel-heading"><div><h2>Platform events</h2><p>'+state.activity.length+' events in this session</p></div><button class="secondary-btn" data-action="clear-activity">Clear activity</button></div><div class="toolbar"><input id="activity-search" type="search" placeholder="Search event details" aria-label="Search activity"><select id="activity-filter" aria-label="Filter activity"><option>All</option><option>Node</option><option>Application</option><option>Deployment</option><option>System</option></select></div><div id="activity-rows" class="event-list">'+activityRows(state.activity)+'</div></section>'}
-function settingsView(){return '<section class="panel page-panel settings-panel"><div class="panel-heading"><div><h2>Dashboard preferences</h2><p>Preferences are local to this browser session.</p></div></div><div class="setting-row"><div><b>Simulation mode</b><p>All actions remain in demo mode.</p></div><span class="setting-state">Always on</span></div><div class="setting-row"><div><b>Sample data</b><p>Illustrative records are displayed.</p></div><span class="setting-state">Enabled</span></div><div class="setting-row"><div><b>Reset dashboard data</b><p>Restore the original sample records.</p></div><button class="secondary-btn" data-action="reset">Reset demo data</button></div><div class="setting-row"><div><b>Platform identity</b><p>Cloudexify Server · Code Your Future</p></div><span class="demo-chip">PROTOTYPE v0.2.0</span></div></section>'}
-const views={nodes:nodesView,applications:appsView,deployments:deploymentsView,network:networkView,activity:activityView,settings:settingsView};
-function navigate(next,push=false){if(!pageMeta[next])next="overview";page=next;if(push)history.pushState({page},"","#"+page);const [label,title,sub]=pageMeta[page];$("#breadcrumb-page").textContent=label;$("#page-title").textContent=title;$("#page-subtitle").textContent=sub;$(".eyebrow").innerHTML="CONTROL PLANE <span>•</span> "+escapeHtml(label.toUpperCase());document.querySelectorAll(".nav-link").forEach(a=>a.classList.toggle("active",a.dataset.page===page));$("#overview-content").hidden=page!=="overview";$("#page-content").hidden=page==="overview";if(page!=="overview")$("#page-content").innerHTML=views[page]();$("#add-node-btn").hidden=page!=="overview"&&page!=="nodes";$("#sidebar").classList.remove("open")}
-function action(name,id){if(name==="add-node")return $("#node-dialog").showModal();if(name==="node-toggle"){const n=state.nodes.find(x=>x.id===id);if(n){n.status=n.status==="Online"?"Offline":"Online";log("Node status changed",n.name+" is "+n.status,"Node");overview();navigate("nodes")}}if(name==="app-toggle"){const a=state.apps.find(x=>x.id===id);if(a){a.status=a.status==="Running"?"Stopped":"Running";log("Application "+a.status.toLowerCase(),a.name,"Application");overview();navigate("applications")}}if(name==="deploy"){const a=state.apps.find(x=>x.status==="Running")||state.apps[0],num=1043+state.deployments.length-3;state.deployments.unshift({id:"dep-"+num,appId:a.id,version:"demo-"+num,status:"Succeeded",target:a.nodeId||"node-01",created:"Just now"});log("Demo deployment created",a.name,"Deployment");navigate("deployments");toast("Demo deployment created; no workload was deployed.")}if(name==="rollback"){const d=state.deployments.find(x=>x.id===id);if(d){const a=state.apps.find(x=>x.id===d.appId);if(a)a.status="Running";log("Rollback simulated",appName(d.appId)+" to "+d.version,"Deployment");navigate("deployments")}}if(name==="route-toggle"){const r=state.routes.find(x=>x.id===id);if(r){r.status=r.status==="Active"?"Disabled":"Active";log("Route status changed",r.domain+" "+r.status);navigate("network")}}if(name==="clear-activity"){state.activity=[];navigate("activity")}if(name==="reset"){Object.assign(state,structuredClone(initialState));overview();navigate("settings");toast("Sample data restored.")}}
-function register(e){e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get("name")||"").trim();if(!name)return toast("Enter a node name.");if(state.nodes.some(n=>n.name.toLowerCase()===name.toLowerCase()))return toast("Node name already exists.");const id="node-"+String(state.nodes.length+1).padStart(2,"0");state.nodes.push({id,name,platform:String(f.get("platform")),cpu:4,memory:parseInt(f.get("memory"),10),status:"Online"});log("Sample node registered",name,"Node");$("#node-dialog").close();e.currentTarget.reset();overview();if(page==="nodes")navigate("nodes");toast("Sample node added. No real device connected.")}
-function filterActivity(){let rows=filterRecords(state.activity,$("#activity-search")?.value||"",["title","detail","type","time"]),type=$("#activity-filter")?.value||"All";if(type!=="All")rows=rows.filter(x=>x.type===type);$("#activity-rows").innerHTML=activityRows(rows)}
-function bind(){ $("#node-form").addEventListener("submit",register);$("#add-node-btn").addEventListener("click",()=>$("#node-dialog").showModal());$("#dismiss-notice").addEventListener("click",()=>$(".notice")?.remove());$("#menu-btn").addEventListener("click",()=>$("#sidebar").classList.toggle("open"));document.addEventListener("click",e=>{const a=e.target.closest("[data-page]");if(a){e.preventDefault();navigate(a.dataset.page,true);return}const b=e.target.closest("[data-action]");if(b)action(b.dataset.action,b.dataset.id)});document.addEventListener("input",e=>{if(e.target.id==="node-search"){const rows=filterRecords(state.nodes,e.target.value,["name","platform","id"]);$("#nodes-rows").innerHTML=rows.map(nodeRow).join("")||'<tr><td colspan="5">No matching nodes.</td></tr>'}if(e.target.id==="activity-search")filterActivity()});document.addEventListener("change",e=>{if(e.target.id==="activity-filter")filterActivity()});window.addEventListener("popstate",()=>navigate(location.hash.slice(1)||"overview"))}
-export function initDashboard(){if(typeof document==="undefined"||!$("#page-content"))return;bind();overview();navigate(location.hash.slice(1)||"overview")}
-if(typeof document!=="undefined")initDashboard();
+const $ = (selector) => document.querySelector(selector);
+const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
+const REFRESH_INTERVAL_MS = 15000;
+const state = { config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
+
+export const pageMeta = {
+  overview: ["Overview", "Infrastructure overview", "Live status from your registered infrastructure."],
+  nodes: ["Compute nodes", "Compute nodes", "Devices enrolled with your control plane."],
+  applications: ["Applications", "Hosted applications", "Applications registered in this workspace."],
+  deployments: ["Deployments", "Deployment history", "Deployment records stored in your database."],
+  jobs: ["Jobs", "Node jobs", "Diagnostic jobs and their current execution state."]
+};
+export const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const formatDate = (value) => value ? new Date(value).toLocaleString() : "—";
+const formatBytes = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return "—";
+  if (number < 1024 ** 3) return (number / 1024 ** 2).toFixed(0) + " MB";
+  return (number / 1024 ** 3).toFixed(1) + " GB";
+};
+function message(text, error = false) {
+  const element = $("#auth-message");
+  if (element) { element.textContent = text; element.classList.toggle("error", error); }
+}
+function dashboardMessage(text, error = false) {
+  const element = $("#dashboard-message");
+  if (!element) return;
+  element.hidden = !text;
+  element.textContent = text || "";
+  element.classList.toggle("error-notice", error);
+}
+function readSession() {
+  try { return JSON.parse(sessionStorage.getItem(AUTH_STORAGE_KEY) || "null"); } catch { return null; }
+}
+function saveSession(session) {
+  state.session = session;
+  if (session) sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(AUTH_STORAGE_KEY);
+}
+async function authRequest(path, body, accessToken = null) {
+  const response = await fetch(state.config.supabaseUrl.replace(/\/$/, "") + "/auth/v1/" + path, {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: state.config.supabasePublishableKey, ...(accessToken ? { authorization: "Bearer " + accessToken } : {}) },
+    body: JSON.stringify(body)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.msg || result.message || result.error_description || "Authentication request failed.");
+  return result;
+}
+async function signIn(email, password) {
+  const result = await authRequest("token?grant_type=password", { email, password });
+  if (!result.access_token || !result.refresh_token || !result.user?.id) throw new Error("Supabase Auth returned an incomplete session.");
+  saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user });
+  return result.user;
+}
+async function ensureFreshSession() {
+  if (!state.session?.access_token) throw new Error("Please sign in again.");
+  if (Number(state.session.expires_at || 0) > Math.floor(Date.now() / 1000) + 60) return state.session;
+  const result = await authRequest("token?grant_type=refresh_token", { refresh_token: state.session.refresh_token });
+  if (!result.access_token || !result.refresh_token) throw new Error("Session refresh failed. Please sign in again.");
+  saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user || state.session.user });
+  return state.session;
+}
+async function api(path, options = {}) {
+  await ensureFreshSession();
+  const response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: "Bearer " + state.session.access_token, ...(options.body ? { "content-type": "application/json" } : {}) }, cache: "no-store" });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 401) { saveSession(null); throw new Error("Your session expired. Please sign in again."); }
+  if (!response.ok) throw new Error(payload.error?.message || "Request failed (" + response.status + ").");
+  return payload;
+}
+async function signOut() {
+  try { if (state.session?.access_token) await authRequest("logout", {}, state.session.access_token); } catch { /* Local sign-out still clears this browser session. */ }
+  if (state.timer) clearInterval(state.timer);
+  saveSession(null);
+  state.user = null;
+  state.tenants = [];
+  state.tenantId = null;
+  $("#app-view").hidden = true;
+  $("#auth-view").hidden = false;
+  message("You have been signed out.");
+}
+function renderLogin() {
+  $("#app-view").hidden = true;
+  $("#auth-view").hidden = false;
+  $("#login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#login-button");
+    button.disabled = true;
+    message("Signing in…");
+    try {
+      const user = await signIn($("#login-email").value.trim(), $("#login-password").value);
+      state.user = user;
+      await openDashboard();
+    } catch (error) { message(error.message || "Unable to sign in.", true); }
+    finally { button.disabled = false; }
+  });
+}
+async function loadTenants() {
+  const result = await api("/api/v1/tenants");
+  state.tenants = Array.isArray(result.tenants) ? result.tenants : [];
+  if (!state.tenants.some((tenant) => tenant.id === state.tenantId)) state.tenantId = state.tenants[0]?.id || null;
+  const select = $("#tenant-select");
+  select.innerHTML = state.tenants.map((tenant) => '<option value="' + escapeHtml(tenant.id) + '">' + escapeHtml(tenant.name) + " · " + escapeHtml(tenant.role) + "</option>").join("");
+  select.disabled = state.tenants.length < 2;
+  if (state.tenantId) select.value = state.tenantId;
+  $("#workspace-name").textContent = state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "No workspace";
+}
+async function loadData() {
+  if (!state.tenantId) {
+    state.data = { nodes: [], applications: [], deployments: [], jobs: [] };
+    renderPage();
+    dashboardMessage("Your account is authenticated, but it has no active Cloudexify workspace membership. Ask an Owner to provision your user and tenant membership.");
+    return;
+  }
+  const base = "/api/v1/tenants/" + encodeURIComponent(state.tenantId);
+  const [nodes, applications, deployments, jobs] = await Promise.all([
+    api(base + "/nodes"), api(base + "/applications"), api(base + "/deployments"), api(base + "/jobs")
+  ]);
+  state.data = {
+    nodes: Array.isArray(nodes.nodes) ? nodes.nodes : [],
+    applications: Array.isArray(applications.applications) ? applications.applications : [],
+    deployments: Array.isArray(deployments.deployments) ? deployments.deployments : [],
+    jobs: Array.isArray(jobs.jobs) ? jobs.jobs : []
+  };
+  dashboardMessage("");
+  $("#last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
+  renderPage();
+}
+function metric(label, value, foot) {
+  return '<article class="metric-card"><div class="metric-top"><span>' + escapeHtml(label) + '</span><span class="metric-icon purple">◈</span></div><div class="metric-value">' + escapeHtml(value) + '</div><div class="metric-foot">' + escapeHtml(foot) + "</div></article>";
+}
+function status(value) {
+  const safe = String(value || "unknown").toLowerCase();
+  const healthy = ["online", "running", "healthy", "succeeded", "completed"].includes(safe);
+  return '<span class="status ' + (healthy ? "" : "offline") + '">' + escapeHtml(value || "Unknown") + "</span>";
+}
+function table(headers, rows, empty) {
+  if (!rows.length) return '<div class="empty-state">' + escapeHtml(empty) + "</div>";
+  return "<table><thead><tr>" + headers.map((header) => "<th>" + escapeHtml(header) + "</th>").join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>";
+}
+function nodeRows(nodes) {
+  return nodes.map((node) => {
+    const resources = node.resources || {};
+    const cpu = resources.cpu_percent == null ? "—" : Number(resources.cpu_percent).toFixed(1) + "% CPU";
+    const memory = resources.memory_total_bytes == null ? "—" : formatBytes(resources.memory_used_bytes) + " / " + formatBytes(resources.memory_total_bytes);
+    return "<tr><td>" + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + "</td></tr>";
+  });
+}
+function applicationRows(apps) {
+  return apps.map((app) => "<tr><td>" + escapeHtml(app.name) + '<small class="subcell">' + escapeHtml(app.id) + "</small></td><td>" + escapeHtml(app.desired_state) + "</td><td>" + escapeHtml(formatDate(app.updated_at || app.created_at)) + "</td></tr>");
+}
+function deploymentRows(items) {
+  return items.map((item) => "<tr><td>" + escapeHtml(item.revision) + "</td><td>" + escapeHtml(item.application_id) + "</td><td>" + escapeHtml(item.desired_state) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(formatDate(item.created_at)) + "</td></tr>");
+}
+function jobRows(items) {
+  return items.map((item) => "<tr><td>" + escapeHtml(item.type) + "</td><td>" + escapeHtml(item.node_id) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(item.attempt_count) + "</td><td>" + escapeHtml(formatDate(item.updated_at || item.created_at)) + "</td></tr>");
+}
+function renderPage() {
+  const [navTitle, title, subtitle] = pageMeta[state.page] || pageMeta.overview;
+  $("#breadcrumb-page").textContent = navTitle;
+  $("#page-eyebrow").textContent = navTitle.toUpperCase();
+  $("#page-title").textContent = title;
+  $("#page-subtitle").textContent = subtitle;
+  document.querySelectorAll("[data-page]").forEach((link) => link.classList.toggle("active", link.dataset.page === state.page));
+  const { nodes, applications, deployments, jobs } = state.data;
+  const online = nodes.filter((node) => node.status === "online").length;
+  const running = applications.filter((app) => app.desired_state === "running").length;
+  const metrics = state.page === "overview"
+    ? metric("Online nodes", online + " / " + nodes.length, "Based on server-side heartbeat status") + metric("Applications", applications.length, running + " configured to run") + metric("Deployments", deployments.length, "Stored deployment revisions") + metric("Jobs", jobs.length, "Queued and historical node jobs")
+    : "";
+  $("#metric-grid").innerHTML = metrics;
+  const config = {
+    overview: ["Compute nodes", "Latest node heartbeat and resource reports", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes.slice(0, 8)), "No nodes registered in this workspace.")],
+    nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
+    applications: ["Applications", "Applications stored in the control-plane database", table(["APPLICATION", "DESIRED STATE", "UPDATED"], applicationRows(applications), "No applications registered in this workspace.")],
+    deployments: ["Deployments", "Persisted deployment revisions", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED"], deploymentRows(deployments), "No deployments recorded in this workspace.")],
+    jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")]
+  }[state.page] || null;
+  $("#table-title").textContent = config[0];
+  $("#table-subtitle").textContent = config[1];
+  $("#table-content").innerHTML = config[2];
+}
+async function refreshData() {
+  if (state.loading || !state.session) return;
+  state.loading = true;
+  $("#refresh-button").disabled = true;
+  try { await loadData(); }
+  catch (error) { dashboardMessage(error.message || "Unable to load workspace data.", true); }
+  finally { state.loading = false; $("#refresh-button").disabled = false; }
+}
+async function openDashboard() {
+  $("#auth-view").hidden = true;
+  $("#app-view").hidden = false;
+  const user = await api("/api/v1/auth/me");
+  state.user = user.user || state.session.user;
+  $("#profile-name").textContent = state.user.display_name || state.user.email || "Account";
+  $("#profile-email").textContent = state.user.email || "";
+  $("#profile-avatar").textContent = (state.user.display_name || state.user.email || "C").slice(0, 1).toUpperCase();
+  await loadTenants();
+  await loadData();
+  if (state.timer) clearInterval(state.timer);
+  state.timer = setInterval(refreshData, REFRESH_INTERVAL_MS);
+}
+async function init() {
+  const configResponse = await fetch("/api/config", { cache: "no-store" });
+  state.config = await configResponse.json();
+  if (!state.config.authConfigured) {
+    message("Supabase Auth is not configured. Add SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Vercel.");
+    $("#login-button").disabled = true;
+    renderLogin();
+    return;
+  }
+  renderLogin();
+  state.session = readSession();
+  if (state.session?.access_token && state.session?.refresh_token) {
+    try { await ensureFreshSession(); await openDashboard(); }
+    catch (error) { saveSession(null); message(error.message || "Please sign in again.", true); }
+  }
+  $("#signout-button").addEventListener("click", signOut);
+  $("#refresh-button").addEventListener("click", refreshData);
+  $("#tenant-select").addEventListener("change", async (event) => {
+    state.tenantId = event.target.value;
+    $("#workspace-name").textContent = state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "Workspace";
+    await refreshData();
+  });
+  document.querySelectorAll("[data-page]").forEach((link) => link.addEventListener("click", (event) => {
+    event.preventDefault(); state.page = link.dataset.page; renderPage();
+    if (window.innerWidth < 900) $("#sidebar").classList.remove("open");
+  }));
+  $("#menu-btn").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+}
+init().catch((error) => { message(error.message || "Dashboard initialization failed.", true); });

@@ -117,3 +117,17 @@ The current dashboard still displays demo/sample inventory and simulated actions
 - Do not enable public Data API access for the internal control-plane tables as part of this deployment.
 - Back up the Supabase project before applying migrations.
 - Do not enroll production nodes until the API identity/bootstrap and node approval workflow has been configured.
+
+
+## Supabase Auth and live dashboard
+
+Add the following Vercel environment variables to Production (and Preview if you test preview deployments):
+
+- `SUPABASE_URL` — your existing Supabase project URL.
+- `SUPABASE_PUBLISHABLE_KEY` — the publishable key. For legacy projects, `SUPABASE_ANON_KEY` is accepted instead.
+
+Do not add a Supabase secret/service-role key to the browser. The dashboard receives only the public publishable/anon key through `/api/config`. The API validates each user access token against the project's Supabase Auth `/auth/v1/user` endpoint before resolving the existing Cloudexify database identity.
+
+The first Cloudexify Owner must exist in Supabase Authentication and be provisioned in `public.users` and `public.tenant_memberships`. Follow [Supabase Auth and tenant RBAC](../authentication-rbac.md) for the exact identity mapping and provisioning template. Do not rerun migrations 001–005 or the runtime-role creation SQL; the dashboard integration does not require them to be rerun.
+
+The dashboard loads nodes, applications, deployments and jobs through tenant-protected API routes and refreshes every 15 seconds. It intentionally does not expose internal database tables directly to browser Realtime subscriptions because the current RLS policies rely on transaction-local `app.user_id`. A separate Realtime authorization bridge can be designed later without weakening tenant isolation.

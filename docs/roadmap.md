@@ -1,88 +1,51 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment, heartbeat backend, and safe typed diagnostic job protocol are CI-verified. Linux node agent v0.1.0 is implemented and its Ubuntu/Node compatibility matrix is CI-verified; no production certification is claimed.
+**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and a Linux diagnostic agent are implemented. The Supabase Auth/live-dashboard integration is now implemented in code; production verification remains gated on user-provided Vercel configuration and GitHub Actions.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
-- [x] Simulated node and application inventory
-- [x] Sample node registration interaction
-- [x] Local static server and health endpoint
+- [x] Supabase email/password sign-in UI
+- [x] Session refresh and sign-out flow using Supabase Auth
+- [x] Remove hardcoded sample inventory from the active dashboard
+- [x] Empty, loading, and API error states
+- [x] Tenant selector and server-side role-scoped data
+- [x] 15-second dashboard refresh and manual refresh
 - [ ] Browser-based visual QA across target devices
 
 ## Milestone 1 — Control-plane foundation
 - [x] Versioned API contract and control-plane architecture documented
 - [x] PostgreSQL schema and initial RLS migration
 - [x] PostgreSQL runtime migration/RLS integration checks in GitHub Actions
-- [x] OIDC RS256 access-token verification using trusted JWKS
-- [x] Issuer, audience, expiry, not-before and HTTPS endpoint validation
+- [x] OIDC RS256 verifier retained as optional compatibility fallback
+- [x] Supabase Auth token validation delegated to the configured Auth server
 - [x] Database-backed identity resolution using issuer + subject
 - [x] Transaction-local user context for pooled PostgreSQL connections
 - [x] Tenant membership and Owner/Admin/Operator/Viewer RBAC
-- [x] Protected APIs for current user, tenant listing, applications, deployments and members
+- [x] Protected APIs for current user, tenant listing, nodes, applications, deployments and jobs
 - [x] Audit events for application, deployment and membership creation
-- [x] API, OIDC and RBAC automated tests
-- [ ] Configure a real OIDC provider and provision the first owner through a controlled bootstrap
-- [ ] Provision a live PostgreSQL runtime role and deployment environment
+- [x] API, auth and RBAC automated tests
+- [ ] Configure Supabase Auth environment variables in Vercel
+- [ ] Provision the first owner identity in the user's Supabase project
+- [ ] Verify production login and live dashboard data
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
-**Verification:** GitHub Actions run [#55](https://github.com/danyalbut96-khan/Server/actions/runs/44976273422) passed on `main` commit `e7dc87b8f6dcbced724f2f97b921e8b7f114a8ce`. It applied migrations 001–005, passed PostgreSQL integration checks for node job leases/retries/stale acknowledgements, and passed the application test suite against disposable PostgreSQL 16 CI infrastructure. Earlier heartbeat verification is recorded in run [#29](https://github.com/danyalbut96-khan/Server/actions/runs/44974907250).
-
 ## Independent control-plane deployment foundation
-
-- [x] Add Vercel Node.js Function adapter for the existing versioned API
-- [x] Add a Vercel health endpoint with a real PostgreSQL connectivity check
-- [x] Bound serverless PostgreSQL pool size to one connection per function instance by default
-- [x] Add automated tests for Vercel configuration and bounded serverless PostgreSQL pool
-- [x] Add Vercel project configuration for root-level static dashboard assets and API functions
-- [x] Add Supabase least-privilege runtime-role SQL for migrations 001–005
-- [x] Document migration order, Supabase Transaction Pooler connection, Vercel root directory and environment variables
-- [ ] Apply migrations and create the runtime role in the user's Supabase project
-- [ ] Configure production Vercel environment variables and deploy the project
-- [ ] Verify the deployed dashboard and `/api/health` against the live Supabase database
-- [ ] Configure a real OIDC provider and provision the first owner identity
-
-**Verification:** GitHub Actions run [#89](https://github.com/danyalbut96-khan/Server/actions/runs/44978016818) passed: migrations 001–005, PostgreSQL integration checks, and the complete application test suite including the new Vercel/pool tests.
-
-**Deployment guide:** [Vercel + Supabase](deployment/vercel-supabase.md). Code and configuration are committed; no live Supabase database has been modified and no Vercel deployment has been created by this repository change.
+- [x] Vercel Node.js Function adapter and health endpoint
+- [x] Bounded serverless PostgreSQL pool
+- [x] Supabase least-privilege runtime-role SQL
+- [x] Vercel/Supabase deployment documentation
+- [x] User confirmed deployed `/api/health` endpoint is working
+- [ ] Verify live authenticated dashboard against the user's Supabase project
 
 ## Milestone 2 — Node enrollment and agent
-- [x] One-time, high-entropy enrollment token issuance with configurable expiry
-- [x] Store only SHA-256 enrollment-token hashes
-- [x] Atomic, single-use enrollment consumption in PostgreSQL
-- [x] Pending node registration with validated platform and capabilities
-- [x] Issue per-node 90-day credential; store only its SHA-256 hash
-- [x] Return node credential secret only once at enrollment
-- [x] Tenant-scoped Owner/Admin credential revocation and audit events
-- [x] Revoke node status when its last active credential is revoked
-- [x] PostgreSQL integration coverage for successful, expired and replayed enrollment tokens
-- [x] API tests for token permissions, token hashing, enrollment response and credential revocation
-- [x] Define supported OS/runtime matrix and qualification gates (Linux first; Android/Termux best-effort; Windows/macOS planned)
-- [x] Build authenticated node heartbeat endpoint for outbound agents
-- [x] Add bounded health/resource reporting and server-side last-seen tracking
-- [x] Derive offline status after three missed heartbeat intervals
-- [x] Test invalid, expired and revoked credentials and cross-node credential isolation
-- [x] Add strict typed diagnostic allowlist (`probe`, `collect_metrics`); reject arbitrary shell commands and non-empty payloads
-- [x] Add tenant-scoped job creation/listing with Owner/Admin/Operator authorization and idempotency keys
-- [x] Add credential-authenticated node job polling with bounded batch and lease parameters
-- [x] Add unique attempt IDs, lease tokens, and guarded acknowledgement state transitions
-- [x] Reconcile expired leases and retry failed attempts with bounded backoff and a five-attempt limit
-- [x] Add API and PostgreSQL integration coverage for permissions, cross-node isolation, retries and stale leases
-
-See [Safe node jobs](node-jobs.md) for the protocol contract and security boundary.
-
-## Linux Node Agent Runtime
-- [x] Add Linux x86_64/aarch64 platform gate and conservative capability detection
-- [x] Implement one-time node enrollment using the existing control-plane API
-- [x] Store credentials atomically with owner-only permissions; reject symlinked/permissive state
-- [x] Implement authenticated heartbeat and bounded Linux CPU, memory, disk, load and uptime metrics
-- [x] Poll node-scoped typed jobs and execute only `probe` / `collect_metrics`
-- [x] Acknowledge accepted, running, succeeded and failed diagnostic states
-- [x] Add graceful SIGINT/SIGTERM shutdown and hardened systemd unit template
-- [x] Add credential storage, enrollment, metric, diagnostic and agent-loop tests
-- [x] Verify 49/49 tests on Ubuntu 22.04/24.04 with Node.js 20/22 ([CI run #6](https://github.com/danyalbut96-khan/Server/actions/runs/44977169157))
+- [x] One-time, high-entropy enrollment tokens with configurable expiry
+- [x] SHA-256-only token and node credential storage
+- [x] Pending node registration and authenticated heartbeat
+- [x] Offline status after missed heartbeat intervals
+- [x] Strict typed diagnostic allowlist (`probe`, `collect_metrics`)
+- [x] Tenant-scoped jobs with idempotency, leases, retries and guarded acknowledgements
+- [x] Linux x86_64/aarch64 diagnostic node agent and CI compatibility tests
 - [ ] Qualify Debian 12 and physical ARM64 devices before production support
-
-See [Linux Node Agent Runtime](node-agent-linux.md) for enrollment, service setup and limitations.
 
 ## Milestone 3 — Scheduler and deployment lifecycle
 - [ ] Resource admission and placement policy
@@ -95,4 +58,4 @@ See [Linux Node Agent Runtime](node-agent-linux.md) for enrollment, service setu
 - [ ] Upgrade strategy and credential rotation
 
 ## Release gates
-No production claim until automated tests, threat model, restore test, failure testing and documented support matrix pass. Android/Termux nodes must be explicitly labeled best-effort.
+No production claim until automated tests, threat model, restore test, failure testing and documented support matrix pass. Android/Termux nodes remain best-effort until qualified.

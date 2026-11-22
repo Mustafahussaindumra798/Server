@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
+import { createSupabaseAuthVerifier } from "./auth/supabase.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
 import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withUserTransaction } from "./db/pool.mjs";
 
@@ -108,12 +109,17 @@ function nodeCredential(request) {
 export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
   let verifyAccessToken;
   try {
-    verifyAccessToken = createOidcVerifier({
-      issuer: env.OIDC_ISSUER,
-      audience: env.OIDC_AUDIENCE,
-      jwksUri: env.OIDC_JWKS_URI,
-      fetchImpl
-    });
+    const supabaseApiKey = env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY;
+    if (env.SUPABASE_URL && supabaseApiKey) {
+      verifyAccessToken = createSupabaseAuthVerifier({ supabaseUrl: env.SUPABASE_URL, apiKey: supabaseApiKey, fetchImpl });
+    } else {
+      verifyAccessToken = createOidcVerifier({
+        issuer: env.OIDC_ISSUER,
+        audience: env.OIDC_AUDIENCE,
+        jwksUri: env.OIDC_JWKS_URI,
+        fetchImpl
+      });
+    }
   } catch {
     verifyAccessToken = null;
   }
@@ -350,6 +356,15 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           );
           await audit(client, tenantId, user.id, "application.created", "application", created.rows[0].id);
           return { status: 201, body: { application: created.rows[0] } };
+        }
+
+        if (resource === "deployments" && request.method === "GET") {
+          requirePermission(role, "read");
+          const deployments = await client.query(
+            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, created_by, created_at, updated_at FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            [tenantId]
+          );
+          return { status: 200, body: { deployments: deployments.rows } };
         }
 
         if (resource === "deployments" && request.method === "POST") {

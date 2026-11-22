@@ -3,9 +3,11 @@
 **Code Your Future** — a multi-device hosting control-plane prototype.
 
 ## Current status
-This repository contains a dashboard simulation, a Node.js HTTP server, a Vercel serverless API adapter, an OIDC-authenticated tenant API foundation, PostgreSQL migrations, and security/integration tests. The dashboard still uses in-memory sample data only. No real device connects and no workload is deployed.
+
+This repository contains a live dashboard shell, a Node.js HTTP API, a Vercel serverless adapter, Supabase Auth verification, tenant RBAC, PostgreSQL migrations, and node enrollment/heartbeat/job APIs. The dashboard loads real workspace records through the protected API and refreshes every 15 seconds. No real workload deployment/runtime is claimed.
 
 ## Run locally
+
 Requires Node.js 20 or newer and PostgreSQL for authenticated API routes.
 
 ```bash
@@ -13,49 +15,24 @@ npm install
 npm start
 ```
 
-Open http://127.0.0.1:4173. Set `PORT` or `HOST` to override the defaults.
-
-Health check: `GET /api/health`.
+Open http://127.0.0.1:4173. Set `PORT` or `HOST` to override the defaults. Health check: `GET /api/health`.
 
 ## Deploy dashboard and API to Vercel
 
 The repository root is the Vercel project root. Static dashboard files (`index.html`, `app.js`, `styles.css`) are served from the root, while `api/` contains Vercel Node.js Functions. PostgreSQL remains in Supabase.
 
-Follow the complete setup guide: [Vercel + Supabase deployment](docs/deployment/vercel-supabase.md).
+Set `DATABASE_URL`, `DB_POOL_MAX=1`, `CORS_ORIGINS`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY` in Vercel. A legacy `SUPABASE_ANON_KEY` is also accepted. Never expose the Supabase secret/service-role key or database URL in browser code.
 
-Important:
-- Run database migrations 001–005 in order on an empty Supabase database.
-- Create and use the restricted `cloudexify_runtime` database role, not the `postgres` owner.
-- Set `DATABASE_URL` to the Supabase Transaction Pooler URL (port 6543), plus the documented server-side environment variables.
-- The Vercel `/api/health` endpoint checks database connectivity.
-- The dashboard currently remains a demo UI; live dashboard queries and login UI are not yet integrated.
-
-## Configure authentication API
-Apply migrations in order:
-1. `database/migrations/001_initial_schema.sql`
-2. `database/migrations/002_auth_identity_context.sql`
-3. `database/migrations/003_node_enrollment.sql`
-4. `database/migrations/004_node_heartbeat.sql`
-5. `database/migrations/005_safe_node_jobs.sql`
-
-Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and `CORS_ORIGINS`. Provision users by storing `issuer|subject` in `users.identity_subject`. Full setup and role permissions are documented in [Authentication and RBAC](docs/authentication-rbac.md).
-
-The dashboard runs without these settings. User-authenticated `/api/v1` routes return 503 until the database and OIDC provider are configured. Node credential routes use their own per-node authentication. The Linux node agent is started separately with `npm run agent -- enroll` and `npm run agent -- run`; see [Linux Node Agent Runtime](docs/node-agent-linux.md).
+Follow [Vercel + Supabase deployment](docs/deployment/vercel-supabase.md) and [Supabase Auth and tenant RBAC](docs/authentication-rbac.md).
 
 ## Database and architecture
-- Schema: [database/migrations/001_initial_schema.sql](database/migrations/001_initial_schema.sql)
-- Authentication identity policy: [database/migrations/002_auth_identity_context.sql](database/migrations/002_auth_identity_context.sql)
-- Node enrollment function: [database/migrations/003_node_enrollment.sql](database/migrations/003_node_enrollment.sql)
-- Node heartbeat function: [database/migrations/004_node_heartbeat.sql](database/migrations/004_node_heartbeat.sql)
-- Safe typed node jobs: [database/migrations/005_safe_node_jobs.sql](database/migrations/005_safe_node_jobs.sql)
-- Supabase runtime role grants: [supabase/setup/001_runtime_role.sql](supabase/setup/001_runtime_role.sql)
+
+- Schema and policies: [database/migrations](database/migrations)
+- Runtime role: [supabase/setup/001_runtime_role.sql](supabase/setup/001_runtime_role.sql)
+- [Authentication and tenant RBAC](docs/authentication-rbac.md)
 - [Safe node job protocol](docs/node-jobs.md)
 - [Node heartbeat API](docs/node-heartbeat.md)
-- Database notes: [docs/database.md](docs/database.md)
-- Authentication and RBAC: [docs/authentication-rbac.md](docs/authentication-rbac.md)
 - [System architecture](docs/architecture.md)
-- [Control-plane backend design](docs/control-plane-design.md)
-- [Node OS/runtime support matrix](docs/node-runtime-support.md)
 - [Delivery roadmap](docs/roadmap.md)
 
-Node enrollment, authenticated heartbeat, and the typed diagnostic job queue are implemented. Only non-mutating `probe` and `collect_metrics` jobs are enabled; arbitrary shell execution is not supported. A Linux x86_64/aarch64 diagnostic node agent is implemented with secure local credential storage, heartbeat reporting, and `probe`/`collect_metrics` handlers. General workload execution, scheduling, automatic installation/upgrades and production hosting are not implemented yet.
+Node enrollment, authenticated heartbeat, and the typed diagnostic job queue are implemented. Only non-mutating `probe` and `collect_metrics` jobs are enabled; arbitrary shell execution is not supported. The Linux node agent is implemented for diagnostic operations. General workload execution, scheduling, automatic installation/upgrades and production hosting are not implemented yet.
