@@ -79,3 +79,11 @@ test("overview and settings pages expose operational context", async () => {
   assert.match(html, /id="overview-extras"/);
   assert.match(html, /data-page="settings"/);
 });
+
+
+test("saved sessions retry dashboard bootstrap when a hidden tab becomes active", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /if \(\$\("#app-view"\)\.hidden\)/);
+  assert.match(app, /openDashboard\(\)\.catch/);
+  assert.match(app, /Your session is still saved/);
+});
