@@ -23,7 +23,7 @@ test("Linux identity accepts only supported 64-bit architectures", () => {
   assert.deepEqual(getLinuxIdentity("android", "arm64", { PREFIX: "/data/data/com.termux/files/usr" }), { platform: "android", architecture: "aarch64", environment: "termux" });
   assert.throws(() => getLinuxIdentity("android", "arm64", {}), /Linux or Android running Termux/);
   assert.throws(() => getLinuxIdentity("win32", "x64"), /Linux or Android running Termux/);
-  assert.throws(() => getLinuxIdentity("linux", "ia32"), /Unsupported Linux architecture/);
+  assert.throws(() => getLinuxIdentity("linux", "ia32"), /Unsupported Linux\/Android architecture/);
 });
 
 test("control-plane URL requires HTTPS except loopback development", () => {
