@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment is CI-verified; heartbeat backend implementation is committed and awaiting updated CI verification. No packaged production node agent is connected.
+**Current stage:** Milestone 2 — node enrollment and heartbeat backend are CI-verified. No packaged production node agent is connected.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -25,7 +25,7 @@
 - [ ] Provision a live PostgreSQL runtime role and deployment environment
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
-**Verification:** Heartbeat verification is gated on the updated GitHub Actions workflow applying migrations 001–004 to PostgreSQL 16 and passing the expanded Node.js suite. The database is disposable CI infrastructure.
+**Verification:** GitHub Actions run [#29](https://github.com/danyalbut96-khan/Server/actions/runs/44974907250) passed on `main` commit `23530aefa93abd3bb674179a8cfffc1a396041fe`. It applied migrations 001–004, passed PostgreSQL integration checks, and passed the application test suite against disposable PostgreSQL 16 CI infrastructure.
 
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment token issuance with configurable expiry
@@ -39,10 +39,10 @@
 - [x] PostgreSQL integration coverage for successful, expired and replayed enrollment tokens
 - [x] API tests for token permissions, token hashing, enrollment response and credential revocation
 - [x] Define supported OS/runtime matrix and qualification gates (Linux first; Android/Termux best-effort; Windows/macOS planned)
-- [ ] Build authenticated node heartbeat endpoint for outbound agents (implementation committed; CI pending)
-- [ ] Add bounded health/resource reporting and server-side last-seen tracking (implementation committed; CI pending)
-- [ ] Derive offline status after three missed heartbeat intervals (implementation committed; CI pending)
-- [ ] Test invalid, expired and revoked credentials and cross-node credential isolation (implementation committed; CI pending)
+- [x] Build authenticated node heartbeat endpoint for outbound agents
+- [x] Add bounded health/resource reporting and server-side last-seen tracking
+- [x] Derive offline status after three missed heartbeat intervals
+- [x] Test invalid, expired and revoked credentials and cross-node credential isolation
 - [ ] Add safe command allowlist and job reconciliation
 
 ## Milestone 3 — Scheduler and deployment lifecycle
