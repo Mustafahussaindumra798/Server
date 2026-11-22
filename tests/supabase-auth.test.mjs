@@ -59,3 +59,18 @@ test("reuses a short-lived verified principal for frequent dashboard polls", asy
   assert.equal(calls, 1);
   assert.deepEqual(second, first);
 });
+
+
+test("does not cache verification when a caller requires fresh authorization", async () => {
+  let calls = 0;
+  const verify = createSupabaseAuthVerifier({
+    supabaseUrl, apiKey,
+    fetchImpl: async () => {
+      calls += 1;
+      return { status: 200, ok: true, json: async () => ({ id: "fresh-user" }) };
+    }
+  });
+  await verify("fresh.valid.token", { cache: false });
+  await verify("fresh.valid.token", { cache: false });
+  assert.equal(calls, 2);
+});
