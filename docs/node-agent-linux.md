@@ -16,7 +16,7 @@ Unknown job types and non-empty job payloads are rejected. These handlers are di
 ## Requirements
 
 - Linux x86_64 or aarch64.
-- Node.js 20 or newer supported LTS.
+- Node.js 22 LTS or newer supported LTS.
 - Outbound TCP 443 to the Cloudexify control-plane URL.
 - A node enrollment token issued by an authorized tenant Owner/Admin.
 - The node must be approved by an administrator before it can receive jobs.
