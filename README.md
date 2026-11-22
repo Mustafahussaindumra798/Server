@@ -35,8 +35,6 @@ The dashboard runs without these settings. Authenticated `/api/v1` routes return
 - Node enrollment function: [database/migrations/003_node_enrollment.sql](database/migrations/003_node_enrollment.sql)
 - Node heartbeat function: [database/migrations/004_node_heartbeat.sql](database/migrations/004_node_heartbeat.sql)
 - [Node heartbeat API](docs/node-heartbeat.md)
-- Node heartbeat function: [database/migrations/004_node_heartbeat.sql](database/migrations/004_node_heartbeat.sql)
-- [Node heartbeat API](docs/node-heartbeat.md)
 - Database notes: [docs/database.md](docs/database.md)
 - Authentication and RBAC: [docs/authentication-rbac.md](docs/authentication-rbac.md)
 - [System architecture](docs/architecture.md)
