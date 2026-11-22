@@ -35,6 +35,7 @@
       <a class="nav-link" href="#applications" data-page="applications">▣ Applications</a>
       <a class="nav-link" href="#deployments" data-page="deployments">⇧ Deployments</a>
       <a class="nav-link" href="#jobs" data-page="jobs">◷ Jobs</a>
+      <a class="nav-link" href="#members" data-page="members">♙ Workspace members</a>
     </nav>
     <div class="sidebar-bottom">
       <div class="plan-card"><span class="plan-icon">✦</span><b>Live control plane</b><p>Data is loaded from your Cloudexify database.</p><span class="plan-status"><i></i> Connected API</span></div>
@@ -48,7 +49,7 @@
       <section class="page-heading"><div><div class="eyebrow">CONTROL PLANE <span>•</span> <span id="page-eyebrow">OVERVIEW</span></div><h1 id="page-title">Infrastructure overview</h1><p id="page-subtitle">Live status from your registered infrastructure.</p></div><div class="heading-actions"><select id="tenant-select" aria-label="Select workspace"></select><button class="secondary-btn" id="refresh-button">Refresh</button></div></section>
       <div id="dashboard-message" class="notice" hidden></div>
       <section id="metric-grid" class="metric-grid"></section>
-      <section class="panel page-panel"><div class="panel-heading"><div><h2 id="table-title">Compute nodes</h2><p id="table-subtitle">Latest records from your workspace</p></div><div class="panel-actions"><button class="primary-btn" id="create-enrollment-button" type="button" hidden>Create enrollment token</button><button class="primary-btn" id="create-diagnostic-job" type="button" hidden>Run diagnostics</button><span id="last-updated" class="muted-note">Waiting for data</span></div></div><div id="table-content" class="table-wrap"><div class="empty-state">Loading workspace data…</div></div></section>
+      <section class="panel page-panel"><div class="panel-heading"><div><h2 id="table-title">Compute nodes</h2><p id="table-subtitle">Latest records from your workspace</p></div><div class="panel-actions"><button class="primary-btn" id="create-enrollment-button" type="button" hidden>Create enrollment token</button><button class="primary-btn" id="create-application-button" type="button" hidden>Create application</button><button class="primary-btn" id="create-deployment-button" type="button" hidden>New deployment</button><button class="primary-btn" id="create-member-button" type="button" hidden>Add member</button><button class="primary-btn" id="create-diagnostic-job" type="button" hidden>Run diagnostics</button><span id="last-updated" class="muted-note">Waiting for data</span></div></div><div id="table-content" class="table-wrap"><div class="empty-state">Loading workspace data…</div></div></section>
       <footer><span>© 2026 Cloudexify. Code Your Future.</span><span>Live control plane</span></footer>
     </div>
   </main>
