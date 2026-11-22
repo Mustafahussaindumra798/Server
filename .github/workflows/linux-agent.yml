@@ -1,0 +1,51 @@
+name: Linux node agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agent.mjs"
+      - "src/agent/**"
+      - "tests/agent.test.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "deploy/systemd/**"
+      - "docs/node-agent-linux.md"
+      - ".github/workflows/linux-agent.yml"
+  pull_request:
+    paths:
+      - "agent.mjs"
+      - "src/agent/**"
+      - "tests/agent.test.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "deploy/systemd/**"
+      - "docs/node-agent-linux.md"
+      - ".github/workflows/linux-agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-agent:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        node: [20, 22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run complete automated test suite
+        run: npm test
+      - name: Verify agent CLI help
+        run: node agent.mjs --help
