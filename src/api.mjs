@@ -104,7 +104,8 @@ function validateJobPayload(type, payload) {
 function nodeCredential(request) {
   return String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1] || null;
 }
-\nexport function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
+
+export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
   let verifyAccessToken;
   try {
     verifyAccessToken = createOidcVerifier({
