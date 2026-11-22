@@ -29,6 +29,7 @@ function fakePool(role = "viewer") {
       if (query.startsWith("SELECT id, identity_subject")) {
         return { rows: [{ id: userId, identity_subject: issuer + "|api-user", email: "api@example.test", display_name: "API User" }], rowCount: 1 };
       }
+      if (query.startsWith("SELECT id, status, approved_at FROM nodes")) return { rows: [{ id: params[0], status: "pending", approved_at: null }], rowCount: 1 };
       if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds FROM nodes")) return { rows: [{ id: params[0], status: "online", approved_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 60 }], rowCount: 1 };
       if (query.startsWith("INSERT INTO jobs")) return { rows: [{ id: "60000000-0000-4000-8000-000000000001", tenant_id: tenantId, node_id: params[1], type: params[2], payload: JSON.parse(params[3]), status: "queued", attempt_count: 0, max_attempts: 5, created_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs")) return { rows: [], rowCount: 0 };
@@ -178,6 +179,42 @@ test("owner can revoke a node credential and revoke its node when no active cred
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.credential.revoked"), true);
 });
 
+
+
+test("owner can approve a pending node and the action is audited", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const nodeId = "30000000-0000-4000-8000-000000000001";
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/" + nodeId + "/approve", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken() }
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).node.id, nodeId);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET approved_at = COALESCE(approved_at, now())")), true);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.approved"), true);
+});
+
+test("viewer cannot approve or reject nodes", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  for (const action of ["approve", "reject"]) {
+    const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/30000000-0000-4000-8000-000000000001/" + action, {
+      method: "POST", headers: { authorization: "Bearer " + makeToken() }
+    });
+    assert.equal(response.status, 403);
+  }
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET approved_at")), false);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE node_credentials SET revoked_at")), false);
+});
+
+test("owner rejection revokes all active node credentials and audits the rejection", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/30000000-0000-4000-8000-000000000001/reject", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken() }
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).node.status, "revoked");
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE node_credentials SET revoked_at = COALESCE(revoked_at, now())")), true);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.rejected"), true);
+});
 
 test("node heartbeat authenticates credentials and stores validated resource metrics", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
