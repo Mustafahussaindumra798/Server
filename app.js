@@ -469,7 +469,12 @@ async function init() {
   }));
   $("#menu-btn").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && state.session) void refreshData({ force: true });
+    if (document.hidden || !state.session) return;
+    if ($("#app-view").hidden) {
+      void openDashboard().catch((error) => message(error.message || "Unable to restore the dashboard. Your session is still saved.", true));
+    } else {
+      void refreshData({ force: true });
+    }
   });
 }
 init().catch((error) => { message(error.message || "Dashboard initialization failed.", true); });
