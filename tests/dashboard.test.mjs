@@ -57,3 +57,13 @@ test("transient dashboard failures do not automatically erase a valid session", 
   assert.match(app, /dashboard\/API outage after successful sign-in must not erase a valid refresh token/);
   assert.match(app, /Preserve a valid refresh token during transient Auth\/network failures/);
 });
+
+
+test("dashboard retains data and backs off after repeated API failures", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /refreshFailures: 0, nextRefreshAt: 0/);
+  assert.match(app, /Date\.now\(\) < state\.nextRefreshAt/);
+  assert.match(app, /Math\.min\(30000/);
+  assert.match(app, /Retrying in /);
+  assert.match(app, /refreshData\(\{ force: true \}\)/);
+});
