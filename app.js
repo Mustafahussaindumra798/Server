@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
 const REFRESH_INTERVAL_MS = 3000;
+const SESSION_REFRESH_MARGIN_SECONDS = 300;
 let refreshInFlight = null;
 const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
 
@@ -45,7 +46,12 @@ async function authRequest(path, body, accessToken = null) {
     body: JSON.stringify(body)
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.msg || result.message || result.error_description || "Authentication request failed.");
+  if (!response.ok) {
+    const error = new Error(result.msg || result.message || result.error_description || "Authentication request failed.");
+    error.status = response.status;
+    error.code = result.error || result.error_code || null;
+    throw error;
+  }
   return result;
 }
 async function signIn(email, password) {
@@ -54,30 +60,41 @@ async function signIn(email, password) {
   saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user });
   return result.user;
 }
-async function ensureFreshSession() {
+async function ensureFreshSession({ force = false } = {}) {
   if (!state.session?.access_token || !state.session?.refresh_token) throw new Error("Please sign in again.");
-  if (Number(state.session.expires_at || 0) > Math.floor(Date.now() / 1000) + 90) return state.session;
+  const expiresAt = Number(state.session.expires_at || 0);
+  if (!force && expiresAt > Math.floor(Date.now() / 1000) + SESSION_REFRESH_MARGIN_SECONDS) return state.session;
   if (!refreshInFlight) {
     const refreshToken = state.session.refresh_token;
     refreshInFlight = authRequest("token?grant_type=refresh_token", { refresh_token: refreshToken })
       .then((result) => {
-        if (!result.access_token || !result.refresh_token) throw new Error("Session refresh failed. Please sign in again.");
+        if (!result.access_token || !result.refresh_token) throw new Error("Supabase Auth returned an incomplete refreshed session.");
         saveSession({ access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + Number(result.expires_in || 3600), user: result.user || state.session?.user });
         return state.session;
-      }).catch((error) => { saveSession(null); throw error; })
-      .finally(() => { refreshInFlight = null; });
+      }).catch((error) => {
+        // Preserve a valid refresh token during transient Auth/network failures.
+        // Clear it only when Supabase explicitly rejects the refresh grant.
+        if ([400, 401, 403].includes(error.status)) saveSession(null);
+        throw error;
+      }).finally(() => { refreshInFlight = null; });
   }
   return refreshInFlight;
 }
 async function api(path, options = {}) {
   await ensureFreshSession();
-  let response;
-  try {
-    response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: "Bearer " + state.session.access_token, ...(options.body ? { "content-type": "application/json" } : {}) }, cache: "no-store" });
-  } catch (error) {
-    const networkError = new Error("Control plane network request failed. The last successful dashboard data is being kept; automatic retry is active.");
-    networkError.cause = error;
-    throw networkError;
+  const request = async () => {
+    try {
+      return await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: "Bearer " + state.session.access_token, ...(options.body ? { "content-type": "application/json" } : {}) }, cache: "no-store" });
+    } catch (error) {
+      const networkError = new Error("Control plane network request failed. The last successful dashboard data is being kept; automatic retry is active.");
+      networkError.cause = error;
+      throw networkError;
+    }
+  };
+  let response = await request();
+  if (response.status === 401) {
+    await ensureFreshSession({ force: true });
+    response = await request();
   }
   const payload = await response.json().catch(() => ({}));
   if (response.status === 401) { saveSession(null); throw new Error("Your session expired. Please sign in again."); }
