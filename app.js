@@ -3,14 +3,15 @@ const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
 const REFRESH_INTERVAL_MS = 3000;
 const SESSION_REFRESH_MARGIN_SECONDS = 300;
 let refreshInFlight = null;
-const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
+const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [], members: [] }, timer: null, loading: false };
 
 export const pageMeta = {
   overview: ["Overview", "Infrastructure overview", "Live status from your registered infrastructure."],
   nodes: ["Compute nodes", "Compute nodes", "Devices enrolled with your control plane."],
   applications: ["Applications", "Hosted applications", "Applications registered in this workspace."],
   deployments: ["Deployments", "Deployment history", "Deployment records stored in your database."],
-  jobs: ["Jobs", "Node jobs", "Diagnostic jobs and their current execution state."]
+  jobs: ["Jobs", "Node jobs", "Diagnostic jobs and their current execution state."],
+  members: ["Workspace members", "Access management", "People and roles assigned to this workspace."]
 };
 export const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "—";
@@ -145,7 +146,7 @@ async function loadTenants() {
 }
 async function loadData() {
   if (!state.tenantId) {
-    state.data = { nodes: [], applications: [], deployments: [], jobs: [] };
+    state.data = { nodes: [], applications: [], deployments: [], jobs: [], members: [] };
     renderPage();
     dashboardMessage("Your account is authenticated, but it has no active Cloudexify workspace membership. Ask an Owner to provision your user and tenant membership.");
     return;
@@ -156,7 +157,8 @@ async function loadData() {
     nodes: Array.isArray(snapshot.nodes) ? snapshot.nodes : [],
     applications: Array.isArray(snapshot.applications) ? snapshot.applications : [],
     deployments: Array.isArray(snapshot.deployments) ? snapshot.deployments : [],
-    jobs: Array.isArray(snapshot.jobs) ? snapshot.jobs : []
+    jobs: Array.isArray(snapshot.jobs) ? snapshot.jobs : [],
+    members: Array.isArray(snapshot.members) ? snapshot.members : []
   };
   dashboardMessage("");
   $("#last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
@@ -197,6 +199,40 @@ function deploymentRows(items) {
 }
 function jobRows(items) {
   return items.map((item) => "<tr><td>" + escapeHtml(item.type) + "</td><td>" + escapeHtml(item.node_id) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(item.attempt_count) + "</td><td>" + escapeHtml(formatDate(item.updated_at || item.created_at)) + "</td></tr>");
+}
+function memberRows(items) {
+  return items.map((item) => "<tr><td><strong>" + escapeHtml(item.display_name || item.email || item.user_id) + "</strong><small class=\"subcell\">" + escapeHtml(item.email || item.user_id) + "</small></td><td>" + escapeHtml(item.role) + "</td><td>" + status(item.status === "active" ? "Active" : item.status) + "</td><td>" + escapeHtml(formatDate(item.created_at)) + "</td></tr>");
+}
+function showResourceDialog({ title, description, fields, submitLabel, onSubmit }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "token-dialog resource-dialog";
+  const fieldMarkup = fields.map((field) => {
+    const control = field.type === "select"
+      ? '<select name="' + escapeHtml(field.name) + '"' + (field.required ? " required" : "") + '>' + field.options.map((option) => '<option value="' + escapeHtml(option.value) + '"' + (option.selected ? " selected" : "") + '>' + escapeHtml(option.label) + "</option>").join("") + "</select>"
+      : '<input name="' + escapeHtml(field.name) + '" type="' + escapeHtml(field.type || "text") + '" maxlength="' + escapeHtml(field.maxLength || 120) + '" placeholder="' + escapeHtml(field.placeholder || "") + '"' + (field.required ? " required" : "") + ">";
+    return '<label>' + escapeHtml(field.label) + control + "</label>";
+  }).join("");
+  dialog.innerHTML = '<form><h2>' + escapeHtml(title) + '</h2><p>' + escapeHtml(description) + '</p>' + fieldMarkup + '<p class="dialog-error" role="alert" hidden></p><div><button type="button" class="secondary-btn" data-cancel>Cancel</button><button type="submit" class="primary-btn">' + escapeHtml(submitLabel) + '</button></div></form>';
+  document.body.append(dialog);
+  const form = dialog.querySelector("form");
+  const submit = form.querySelector('[type="submit"]');
+  const errorBox = form.querySelector(".dialog-error");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    errorBox.hidden = true;
+    try {
+      await onSubmit(new FormData(form));
+      dialog.close();
+      await refreshData();
+    } catch (error) {
+      errorBox.textContent = error.message || "The request could not be completed.";
+      errorBox.hidden = false;
+    } finally { submit.disabled = false; }
+  });
+  form.querySelector("[data-cancel]").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
 }
 function renderNodeDetails(nodeId) {
   const node = state.data.nodes.find((item) => item.id === nodeId);
@@ -242,13 +278,20 @@ function renderPage() {
     nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
     applications: ["Applications", "Applications stored in the control-plane database", table(["APPLICATION", "DESIRED STATE", "UPDATED"], applicationRows(applications), "No applications registered in this workspace.")],
     deployments: ["Deployments", "Persisted deployment revisions", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED"], deploymentRows(deployments), "No deployments recorded in this workspace.")],
-    jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")]
+    jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")],
+    members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")]
   }[state.page] || null;
   $("#table-title").textContent = config[0];
   $("#table-subtitle").textContent = config[1];
   $("#table-content").innerHTML = config[2];
+  const applicationButton = $("#create-application-button");
+  if (applicationButton) applicationButton.hidden = !(state.page === "applications" && ["owner", "admin"].includes(currentRole));
+  const deploymentButton = $("#create-deployment-button");
+  if (deploymentButton) deploymentButton.hidden = !(state.page === "deployments" && ["owner", "admin", "operator"].includes(currentRole) && applications.length > 0);
+  const memberButton = $("#create-member-button");
+  if (memberButton) memberButton.hidden = !(state.page === "members" && ["owner", "admin"].includes(currentRole));
   const diagnosticButton = $("#create-diagnostic-job");
-  if (diagnosticButton) diagnosticButton.hidden = !(state.page === "jobs" && ["owner", "admin"].includes(currentRole) && nodes.some((node) => node.status === "online"));
+  if (diagnosticButton) diagnosticButton.hidden = !(state.page === "jobs" && ["owner", "admin", "operator"].includes(currentRole) && nodes.some((node) => ["online", "degraded"].includes(node.status)));
   if (state.page === "nodes" && state.selectedNodeId) renderNodeDetails(state.selectedNodeId);
 }
 async function refreshData() {
@@ -332,22 +375,69 @@ async function init() {
       button.disabled = false;
     }
   });
-  $("#create-diagnostic-job").addEventListener("click", async () => {
-    const onlineNodes = state.data.nodes.filter((item) => item.status === "online");
-    if (!onlineNodes.length) { dashboardMessage("No online node is available for diagnostics.", true); return; }
-    const nodeChoices = onlineNodes.map((item, index) => (index + 1) + ". " + item.name + " (" + item.platform + ", " + item.id + ")").join("\\n");
-    const selectedIndex = Number(window.prompt("Choose the exact target node by number:\\n" + nodeChoices, "1"));
-    if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex > onlineNodes.length) return;
-    const node = onlineNodes[selectedIndex - 1];
-    const type = window.prompt("Enter diagnostic type: probe or collect_metrics", "collect_metrics");
-    if (!["probe", "collect_metrics"].includes(String(type || "").trim())) return;
-    const button = $("#create-diagnostic-job"); button.disabled = true;
-    try {
-      await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/jobs", { method: "POST", body: JSON.stringify({ node_id: node.id, type: String(type).trim(), payload: {}, idempotency_key: "dashboard-" + crypto.randomUUID() }) });
-      dashboardMessage(type + " job queued for " + node.name + ".");
-      await refreshData();
-    } catch (error) { dashboardMessage(error.message || "Unable to queue diagnostic job.", true); }
-    finally { button.disabled = false; }
+  $("#create-diagnostic-job").addEventListener("click", () => {
+    const onlineNodes = state.data.nodes.filter((item) => ["online", "degraded"].includes(item.status));
+    if (!onlineNodes.length) { dashboardMessage("No approved online node is available for diagnostics.", true); return; }
+    showResourceDialog({
+      title: "Run node diagnostics",
+      description: "Choose one approved node and a non-mutating diagnostic task.",
+      fields: [
+        { name: "node_id", label: "Target node", type: "select", required: true, options: onlineNodes.map((node, index) => ({ value: node.id, label: node.name + " · " + node.platform, selected: index === 0 })) },
+        { name: "type", label: "Diagnostic task", type: "select", required: true, options: [{ value: "collect_metrics", label: "Collect resource metrics", selected: true }, { value: "probe", label: "Connectivity probe" }] }
+      ],
+      submitLabel: "Queue diagnostic",
+      onSubmit: async (form) => {
+        const node = onlineNodes.find((item) => item.id === form.get("node_id"));
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/jobs", { method: "POST", body: JSON.stringify({ node_id: form.get("node_id"), type: form.get("type"), payload: {}, idempotency_key: "dashboard-" + crypto.randomUUID() }) });
+        dashboardMessage(form.get("type") + " job queued for " + (node?.name || "the selected node") + ".");
+      }
+    });
+  });
+  $("#create-application-button").addEventListener("click", () => showResourceDialog({
+    title: "Create application",
+    description: "Register an application in this workspace. This creates a control-plane record; it does not deploy or run code yet.",
+    fields: [{ name: "name", label: "Application name", required: true, maxLength: 100, placeholder: "e.g. Cloudexify Website" }],
+    submitLabel: "Create application",
+    onSubmit: async (form) => {
+      await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/applications", { method: "POST", body: JSON.stringify({ name: String(form.get("name") || "").trim() }) });
+      dashboardMessage("Application record created.");
+    }
+  }));
+  $("#create-deployment-button").addEventListener("click", () => {
+    if (!state.data.applications.length) { dashboardMessage("Create an application before requesting a deployment.", true); return; }
+    const apps = state.data.applications;
+    const nodes = state.data.nodes.filter((node) => ["online", "degraded"].includes(node.status));
+    showResourceDialog({
+      title: "Request deployment",
+      description: "Create a deployment revision. Workload execution is not enabled in this prototype yet.",
+      fields: [
+        { name: "application_id", label: "Application", type: "select", required: true, options: apps.map((app, index) => ({ value: app.id, label: app.name, selected: index === 0 })) },
+        { name: "target_node_id", label: "Target node (optional)", type: "select", required: false, options: [{ value: "", label: "Unassigned — scheduler not enabled" }, ...nodes.map((node) => ({ value: node.id, label: node.name + " · " + node.platform }))] },
+        { name: "desired_state", label: "Desired state", type: "select", required: true, options: [{ value: "running", label: "Running", selected: true }, { value: "stopped", label: "Stopped" }] }
+      ],
+      submitLabel: "Create deployment request",
+      onSubmit: async (form) => {
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments", { method: "POST", body: JSON.stringify({ application_id: form.get("application_id"), target_node_id: form.get("target_node_id") || null, desired_state: form.get("desired_state") }) });
+        dashboardMessage("Deployment revision queued. No workload has been started yet.");
+      }
+    });
+  });
+  $("#create-member-button").addEventListener("click", () => {
+    const role = state.tenants.find((tenant) => tenant.id === state.tenantId)?.role;
+    const roles = role === "owner" ? ["admin", "operator", "viewer"] : ["operator", "viewer"];
+    showResourceDialog({
+      title: "Add workspace member",
+      description: "Enter the UUID of an already-provisioned Cloudexify user and assign a tenant role.",
+      fields: [
+        { name: "user_id", label: "User ID (UUID)", required: true, maxLength: 36, placeholder: "00000000-0000-4000-8000-000000000000" },
+        { name: "role", label: "Workspace role", type: "select", required: true, options: roles.map((value, index) => ({ value, label: value[0].toUpperCase() + value.slice(1), selected: index === 0 })) }
+      ],
+      submitLabel: "Add member",
+      onSubmit: async (form) => {
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/members", { method: "POST", body: JSON.stringify({ user_id: String(form.get("user_id") || "").trim(), role: form.get("role") }) });
+        dashboardMessage("Workspace membership created.");
+      }
+    });
   });
   $("#tenant-select").addEventListener("change", async (event) => {
     state.tenantId = event.target.value;
