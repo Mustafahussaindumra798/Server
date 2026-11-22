@@ -1,0 +1,235 @@
+#!/usr/bin/env node
+import os from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
+import { getCapabilities, getLinuxIdentity, readLinuxMetrics, validateControlPlaneUrl } from "./src/agent/linux.mjs";
+import { defaultStateDirectory, loadAgentState, saveAgentState } from "./src/agent/state.mjs";
+
+export const AGENT_VERSION = "0.1.0";
+const DEFAULT_HEARTBEAT_SECONDS = 60;
+const DEFAULT_POLL_SECONDS = 10;
+const REQUEST_TIMEOUT_MS = 12_000;
+
+export class AgentAuthenticationError extends Error {}
+
+function log(level, message, fields = {}) {
+  const safe = { ...fields };
+  for (const key of ["credential", "secret", "lease_token", "token", "authorization"]) delete safe[key];
+  process.stdout.write(JSON.stringify({ timestamp: new Date().toISOString(), level, message, ...safe }) + "\n");
+}
+
+async function requestJson(fetchImpl, url, { method = "GET", credential, body, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("request timeout")), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method,
+      headers: {
+        accept: "application/json",
+        ...(credential ? { authorization: "Bearer " + credential } : {}),
+        ...(body ? { "content-type": "application/json" } : {})
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: controller.signal,
+      redirect: "error"
+    });
+    const text = await response.text();
+    let payload = {};
+    if (text) {
+      try { payload = JSON.parse(text); } catch { throw new Error("Control plane returned a non-JSON response (HTTP " + response.status + ")."); }
+    }
+    if (!response.ok) {
+      const message = payload?.error?.message || "Control-plane request failed with HTTP " + response.status + ".";
+      if (response.status === 401 || response.status === 403) throw new AgentAuthenticationError(message);
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function enrollNode({ controlPlaneUrl, enrollmentToken, nodeName, stateDirectory = defaultStateDirectory(), fetchImpl = fetch }) {
+  const identity = getLinuxIdentity();
+  const baseUrl = validateControlPlaneUrl(controlPlaneUrl);
+  if (typeof enrollmentToken !== "string" || enrollmentToken.length < 16 || enrollmentToken.length > 256) throw new Error("A valid one-time enrollment token is required.");
+  if (typeof nodeName !== "string" || !nodeName.trim() || nodeName.trim().length > 100) throw new Error("Node name must contain 1–100 characters.");
+  const response = await requestJson(fetchImpl, baseUrl + "/api/v1/nodes/enroll", {
+    method: "POST",
+    body: {
+      enrollment_token: enrollmentToken,
+      name: nodeName.trim(),
+      platform: identity.platform,
+      architecture: identity.architecture,
+      agent_version: AGENT_VERSION,
+      capabilities: getCapabilities()
+    }
+  });
+  if (!response.node?.id || !response.credential?.secret) throw new Error("Enrollment response did not include a node ID and one-time credential.");
+  const state = {
+    node_id: response.node.id,
+    credential: response.credential.secret,
+    control_plane_url: baseUrl,
+    node_name: nodeName.trim(),
+    enrolled_at: new Date().toISOString()
+  };
+  await saveAgentState(stateDirectory, state);
+  return { node: response.node, stateDirectory };
+}
+
+export async function executeDiagnostic(job, { fetchImpl = fetch, controlPlaneUrl, procRoot = "/proc", diskPath = "/" } = {}) {
+  if (!job || !["probe", "collect_metrics"].includes(job.job_type) ||
+      !job.payload || typeof job.payload !== "object" || Array.isArray(job.payload) || Object.keys(job.payload).length !== 0) {
+    throw new Error("Unsupported or malformed diagnostic job.");
+  }
+  if (job.job_type === "probe") {
+    const health = await requestJson(fetchImpl, controlPlaneUrl + "/api/health", { timeoutMs: 8000 });
+    return { result_code: "control_plane_reachable", result_summary: "Control plane responded with status " + String(health.status || "unknown") + "." };
+  }
+  const resources = await readLinuxMetrics({ procRoot, diskPath });
+  return { result_code: "metrics_collected", result_summary: JSON.stringify(resources).slice(0, 3900) };
+}
+
+async function acknowledge(fetchImpl, state, job, status, result = {}) {
+  return requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/jobs/" + job.job_id + "/ack", {
+    method: "POST",
+    credential: state.credential,
+    body: {
+      attempt_id: job.attempt_id,
+      lease_token: job.lease_token,
+      status,
+      result_code: result.result_code ?? null,
+      result_summary: result.result_summary ?? null
+    }
+  });
+}
+
+export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log } = {}) {
+  getLinuxIdentity();
+  if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 15 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 15 and 300 seconds.");
+  if (!Number.isInteger(pollSeconds) || pollSeconds < 5 || pollSeconds > 120) throw new Error("Poll interval must be between 5 and 120 seconds.");
+  const state = await loadAgentState(stateDirectory);
+  const identity = getLinuxIdentity();
+  let nextHeartbeat = 0;
+  let nextPoll = 0;
+  let lastCpuMetrics = null;
+  onLog("info", "Linux node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
+
+  while (!signal?.aborted) {
+    const now = Date.now();
+    try {
+      if (now >= nextHeartbeat) {
+        const resources = await readLinuxMetrics();
+        const heartbeat = await requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/heartbeat", {
+          method: "POST",
+          credential: state.credential,
+          body: { agent_version: AGENT_VERSION, health_status: "healthy", resources }
+        });
+        onLog("info", "Heartbeat accepted", { node_id: state.node_id, status: heartbeat.node?.status || "unknown", metric_count: Object.keys(resources).length });
+        nextHeartbeat = Date.now() + heartbeatSeconds * 1000;
+      }
+    } catch (error) {
+      if (error instanceof AgentAuthenticationError) throw error;
+      onLog("warn", "Heartbeat failed; agent will retry", { node_id: state.node_id, error: error.message });
+      nextHeartbeat = Date.now() + Math.min(heartbeatSeconds * 1000, 15_000);
+    }
+
+    try {
+      if (Date.now() >= nextPoll) {
+        const claimed = await requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/jobs/claim", {
+          method: "POST",
+          credential: state.credential,
+          body: { limit: 1, lease_seconds: 120 }
+        });
+        for (const job of claimed.jobs || []) {
+          try {
+            await acknowledge(fetchImpl, state, job, "accepted");
+            await acknowledge(fetchImpl, state, job, "running");
+            const result = await executeDiagnostic(job, { fetchImpl, controlPlaneUrl: state.control_plane_url });
+            await acknowledge(fetchImpl, state, job, "succeeded", result);
+            onLog("info", "Diagnostic job completed", { node_id: state.node_id, job_id: job.job_id, job_type: job.job_type, result_code: result.result_code });
+          } catch (error) {
+            if (error instanceof AgentAuthenticationError) throw error;
+            try {
+              await acknowledge(fetchImpl, state, job, "failed", { result_code: "diagnostic_failed", result_summary: String(error.message).slice(0, 1000) });
+            } catch (ackError) {
+              onLog("warn", "Could not submit diagnostic failure result", { node_id: state.node_id, job_id: job.job_id, error: ackError.message });
+            }
+            onLog("warn", "Diagnostic job failed", { node_id: state.node_id, job_id: job.job_id, error: error.message });
+          }
+        }
+        nextPoll = Date.now() + pollSeconds * 1000;
+      }
+    } catch (error) {
+      if (error instanceof AgentAuthenticationError) throw error;
+      onLog("warn", "Job polling failed; agent will retry", { node_id: state.node_id, error: error.message });
+      nextPoll = Date.now() + Math.min(pollSeconds * 1000, 15_000);
+    }
+
+    const wait = Math.max(250, Math.min(nextHeartbeat, nextPoll) - Date.now());
+    try { await sleep(wait, undefined, { signal }); }
+    catch (error) { if (!signal?.aborted) throw error; }
+  }
+  onLog("info", "Linux node agent stopped", { node_id: state.node_id });
+}
+
+function usage() {
+  process.stdout.write([
+    "Cloudexify Linux Node Agent " + AGENT_VERSION,
+    "",
+    "Commands:",
+    "  node agent.mjs enroll",
+    "  node agent.mjs run",
+    "",
+    "Enrollment environment:",
+    "  CLOUDEXIFY_CONTROL_PLANE_URL  Required; HTTPS endpoint (localhost HTTP allowed for tests)",
+    "  CLOUDEXIFY_ENROLLMENT_TOKEN   One-time token from Cloudexify admin",
+    "  CLOUDEXIFY_NODE_NAME          Human-readable node name",
+    "  CLOUDEXIFY_AGENT_STATE_DIR    Optional; defaults to ~/.local/share/cloudexify-agent",
+    "",
+    "Runtime environment:",
+    "  CLOUDEXIFY_HEARTBEAT_SECONDS  Optional; 15–300, default 60",
+    "  CLOUDEXIFY_POLL_SECONDS       Optional; 5–120, default 10"
+  ].join("\n") + "\n");
+}
+
+async function main() {
+  const command = process.argv[2];
+  if (command === "--help" || command === "-h" || !command) return usage();
+  if (command === "enroll") {
+    const result = await enrollNode({
+      controlPlaneUrl: process.env.CLOUDEXIFY_CONTROL_PLANE_URL,
+      enrollmentToken: process.env.CLOUDEXIFY_ENROLLMENT_TOKEN,
+      nodeName: process.env.CLOUDEXIFY_NODE_NAME
+    });
+    log("info", "Node enrolled; approval is still required before jobs can be assigned", { node_id: result.node.id, node_name: result.node.name, state_directory: result.stateDirectory });
+    return;
+  }
+  if (command === "run") {
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    try {
+      await runAgent({
+        heartbeatSeconds: Number(process.env.CLOUDEXIFY_HEARTBEAT_SECONDS || DEFAULT_HEARTBEAT_SECONDS),
+        pollSeconds: Number(process.env.CLOUDEXIFY_POLL_SECONDS || DEFAULT_POLL_SECONDS),
+        signal: controller.signal
+      });
+    } finally {
+      process.removeListener("SIGINT", stop);
+      process.removeListener("SIGTERM", stop);
+    }
+    return;
+  }
+  usage();
+  process.exitCode = 2;
+}
+
+if (import.meta.url === new URL(process.argv[1], "file:").href) {
+  main().catch((error) => {
+    log("error", "Agent stopped", { error: error.message });
+    process.exitCode = 1;
+  });
+}
