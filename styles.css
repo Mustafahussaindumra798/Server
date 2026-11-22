@@ -37,3 +37,5 @@
   .heading-actions { width: 100%; justify-content: flex-start; }
   .heading-actions select { flex: 1; min-width: 150px; }
 }
+
+.node-actions{display:flex;gap:6px;margin-top:7px}.node-actions .small-action{padding:5px 8px}.node-actions .small-action:last-child{color:#b45e54;border-color:#f0d9d6}.node-actions .small-action:disabled{opacity:.55;cursor:wait}
