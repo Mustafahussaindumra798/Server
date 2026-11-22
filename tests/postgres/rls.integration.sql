@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 
--- This script runs after 001_initial_schema.sql on a disposable PostgreSQL database.
+-- This script runs after migrations 001-004 on a disposable PostgreSQL database.
 -- Fixtures use fixed UUIDs so the assertions are deterministic.
 
 DO $$
@@ -45,8 +45,8 @@ INSERT INTO tenant_memberships (tenant_id, user_id, role) VALUES
   ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'owner'),
   ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000002', 'viewer');
 
-INSERT INTO nodes (id, tenant_id, name, platform, architecture, status) VALUES
-  ('30000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'node-a', 'linux', 'x86_64', 'online'),
+INSERT INTO nodes (id, tenant_id, name, platform, architecture, status, approved_at) VALUES
+  ('30000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'node-a', 'linux', 'x86_64', 'online', now()),
   ('30000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'node-b', 'android', 'aarch64', 'pending');
 
 INSERT INTO node_credentials (node_id, secret_hash) VALUES
@@ -103,6 +103,30 @@ BEGIN
 END
 $expired_enrollment$;
 
+-- Heartbeat authentication, last-seen persistence and credential rejection.
+DO $heartbeat_valid$
+DECLARE result record;
+BEGIN
+ SELECT * INTO result FROM app_private.accept_node_heartbeat('30000000-0000-4000-8000-000000000001',repeat('a',64),'agent-test','healthy','{"cpu_percent":12.5,"memory_total_bytes":4096,"memory_used_bytes":1024}'::jsonb);
+ IF result.node_id<>'30000000-0000-4000-8000-000000000001' OR result.status<>'online' OR result.last_seen_at IS NULL THEN RAISE EXCEPTION 'Valid heartbeat was not accepted'; END IF;
+ IF (SELECT resource_metrics_json->>'cpu_percent' FROM nodes WHERE id=result.node_id)<>'12.5' THEN RAISE EXCEPTION 'Resource metrics were not persisted'; END IF;
+ IF (SELECT last_used_at FROM node_credentials WHERE node_id=result.node_id AND secret_hash=repeat('a',64)) IS NULL THEN RAISE EXCEPTION 'Credential last-use time missing'; END IF;
+END $heartbeat_valid$;
+INSERT INTO node_credentials(node_id,secret_hash,expires_at) VALUES
+ ('30000000-0000-4000-8000-000000000001',repeat('e',64),now()+interval '1 day'),
+ ('30000000-0000-4000-8000-000000000001',repeat('9',64),now()-interval '1 second');
+UPDATE node_credentials SET revoked_at=now() WHERE secret_hash=repeat('e',64);
+DO $heartbeat_rejections$
+DECLARE result_count integer;
+BEGIN
+ SELECT count(*) INTO result_count FROM app_private.accept_node_heartbeat('30000000-0000-4000-8000-000000000001',repeat('e',64),NULL,'healthy','{}'::jsonb);
+ IF result_count<>0 THEN RAISE EXCEPTION 'Revoked credential accepted'; END IF;
+ SELECT count(*) INTO result_count FROM app_private.accept_node_heartbeat('30000000-0000-4000-8000-000000000001',repeat('9',64),NULL,'healthy','{}'::jsonb);
+ IF result_count<>0 THEN RAISE EXCEPTION 'Expired credential accepted'; END IF;
+ SELECT count(*) INTO result_count FROM app_private.accept_node_heartbeat('30000000-0000-4000-8000-000000000002',repeat('a',64),NULL,'healthy','{}'::jsonb);
+ IF result_count<>0 THEN RAISE EXCEPTION 'Cross-node credential accepted'; END IF;
+END $heartbeat_rejections$;
+
 -- Verify tenant-aware composite foreign keys reject a node from another tenant.
 DO $$
 BEGIN
@@ -148,6 +172,7 @@ CREATE ROLE cloudexify_test_runtime LOGIN PASSWORD 'test-only-password'
 GRANT USAGE ON SCHEMA public, app_private TO cloudexify_test_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cloudexify_test_runtime;
 GRANT EXECUTE ON FUNCTION app_private.enroll_node(text,text,text,text,text,jsonb,text) TO cloudexify_test_runtime;
+GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb) TO cloudexify_test_runtime;
 
 SET ROLE cloudexify_test_runtime;
 
