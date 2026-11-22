@@ -11,7 +11,8 @@ export const pageMeta = {
   applications: ["Applications", "Hosted applications", "Applications registered in this workspace."],
   deployments: ["Deployments", "Deployment history", "Deployment records stored in your database."],
   jobs: ["Jobs", "Node jobs", "Diagnostic jobs and their current execution state."],
-  members: ["Workspace members", "Access management", "People and roles assigned to this workspace."]
+  members: ["Workspace members", "Access management", "People and roles assigned to this workspace."],
+  settings: ["Settings", "Session and workspace settings", "Authentication status, session continuity and control-plane configuration."]
 };
 export const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 const formatDate = (value) => value ? new Date(value).toLocaleString() : "—";
@@ -272,13 +273,21 @@ function renderPage() {
     ? metric("Online nodes", online + " / " + nodes.length, "Based on server-side heartbeat status") + metric("Applications", applications.length, running + " configured to run") + metric("Deployments", deployments.length, "Stored deployment revisions") + metric("Jobs", jobs.length, "Queued and historical node jobs")
     : "";
   $("#metric-grid").innerHTML = metrics;
+  const overviewExtras = $("#overview-extras");
+  if (overviewExtras) {
+    overviewExtras.hidden = state.page !== "overview";
+    overviewExtras.innerHTML = state.page === "overview"
+      ? '<div class="overview-grid"><section class="panel"><div class="panel-heading"><div><h2>Recent jobs</h2><p>Latest diagnostic activity across this workspace</p></div></div>' + table(["TASK", "NODE", "STATUS"], jobs.slice(0, 5).map((job) => '<tr><td>' + escapeHtml(job.type) + '</td><td>' + escapeHtml(String(job.node_id || "").slice(0, 8)) + '</td><td>' + status(job.status) + '</td></tr>'), "No jobs have been queued yet.") + '</section><section class="panel"><div class="panel-heading"><div><h2>Applications</h2><p>Registered application records</p></div></div>' + (applications.length ? '<div class="overview-app-list">' + applications.slice(0, 5).map((app) => '<div class="overview-app-item"><span class="overview-app-icon">A</span><div><b>' + escapeHtml(app.name) + '</b><small>' + escapeHtml(app.desired_state || "stopped") + '</small></div>' + status(app.desired_state || "stopped") + '</div>').join("") + '</div>' : '<div class="empty-state">No applications registered yet.</div>') + '</section></div>'
+      : "";
+  }
   const config = {
     overview: ["Compute nodes", "Latest node heartbeat and resource reports", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes.slice(0, 8)), "No nodes registered in this workspace.")],
     nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
     applications: ["Applications", "Applications stored in the control-plane database", table(["APPLICATION", "DESIRED STATE", "UPDATED"], applicationRows(applications), "No applications registered in this workspace.")],
     deployments: ["Deployments", "Persisted deployment revisions", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED"], deploymentRows(deployments), "No deployments recorded in this workspace.")],
     jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")],
-    members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")]
+    members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")],
+    settings: ["Session and workspace settings", "Authentication, session continuity and service configuration", '<div class="settings-grid"><article class="settings-card"><span>AUTHENTICATION</span><h3>Supabase Auth</h3><p>Browser session persistence with automatic token refresh and stale-token recovery.</p><b class="setting-state">Automatic refresh enabled</b></article><article class="settings-card"><span>ACCESS TOKEN</span><h3>' + escapeHtml(state.session?.expires_at ? formatDate(new Date(Number(state.session.expires_at) * 1000)) : "Not available") + '</h3><p>Current access-token expiry. The browser refreshes it before expiry; this is not the overall session end time.</p></article><article class="settings-card"><span>WORKSPACE</span><h3>' + escapeHtml(state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "No workspace") + '</h3><p>Current role: ' + escapeHtml(currentRole || "Unknown") + '</p></article><article class="settings-card"><span>DATA REFRESH</span><h3>Every 3 seconds</h3><p>Single combined snapshot while this dashboard is active, with bounded retry backoff after network failures.</p></article><article class="settings-card"><span>API PROTECTION</span><h3>600 requests / minute</h3><p>Vercel edge rate limit per source IP for the authenticated control-plane API.</p></article><article class="settings-card"><span>WORKLOAD RUNTIME</span><h3>Not enabled yet</h3><p>Applications and deployment revisions can be registered, but workload execution, isolation and rollback are a later milestone.</p></article></div>']
   }[state.page] || null;
   $("#table-title").textContent = config[0];
   $("#table-subtitle").textContent = config[1];
