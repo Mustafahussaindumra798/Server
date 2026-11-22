@@ -164,7 +164,7 @@ function nodeRows(nodes) {
     const actions = canManage && node.status === "pending"
       ? '<div class="node-actions"><button type="button" class="small-action" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="small-action" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
       : "";
-    return '<tr class="node-row" tabindex="0" data-node-open="' + escapeHtml(node.id) + '"><td><strong>' + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
+    return '<tr class="node-row" tabindex="0" data-node-open="' + escapeHtml(node.id) + '"><td><strong>' + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></strong></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
 }
 function applicationRows(apps) {
@@ -277,7 +277,15 @@ async function init() {
       });
       const token = result.enrollment_token?.token;
       if (!token) throw new Error("The API did not return an enrollment token.");
-      window.prompt("Copy this one-time enrollment token. It will not be shown again. Expires: " + new Date(result.enrollment_token.expires_at).toLocaleString(), token);
+      const dialog = document.createElement("dialog");
+      dialog.className = "token-dialog";
+      dialog.innerHTML = '<h2>Enrollment token created</h2><p>Copy this one-time token now. It expires at ' + escapeHtml(new Date(result.enrollment_token.expires_at).toLocaleString()) + '.</p><textarea readonly rows="3"></textarea><div><button type="button" class="secondary-btn" data-copy-token>Copy token</button><button type="button" class="primary-btn" data-close-token>Done</button></div>';
+      dialog.querySelector("textarea").value = token;
+      document.body.append(dialog);
+      dialog.showModal();
+      dialog.querySelector("[data-copy-token]").addEventListener("click", async () => { await navigator.clipboard.writeText(token); dialog.querySelector("[data-copy-token]").textContent = "Copied"; });
+      dialog.querySelector("[data-close-token]").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("close", () => dialog.remove(), { once: true });
       dashboardMessage("A one-time enrollment token was created. Use it on the Android/Termux device within 30 minutes.");
     } catch (error) {
       dashboardMessage(error.message || "Unable to create enrollment token.", true);
