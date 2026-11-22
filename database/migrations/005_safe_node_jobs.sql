@@ -238,7 +238,8 @@ BEGIN
 END
 $ack_job$;
 
-REVOKE ALL ON FUNCTION app_private.node_credential_is_valid(uuid,text) FROM PUBLIC;\nREVOKE ALL ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_private.node_credential_is_valid(uuid,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) FROM PUBLIC;
 
 COMMIT;
