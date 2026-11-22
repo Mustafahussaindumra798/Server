@@ -28,7 +28,7 @@ async function readCpuCounters(procRoot) {
   const values = line.trim().split(/\s+/).slice(1).map(Number);
   if (values.length < 4 || values.some((value) => !Number.isFinite(value) || value < 0)) throw new Error("CPU counters are invalid.");
   const idle = values[3] + (values[4] || 0);
-  const total = values.reduce((sum, value) => sum + value, 0);
+  const total = values.slice(0, 8).reduce((sum, value) => sum + value, 0);
   return { idle, total };
 }
 
