@@ -47,7 +47,7 @@ INSERT INTO tenant_memberships (tenant_id, user_id, role) VALUES
 
 INSERT INTO nodes (id, tenant_id, name, platform, architecture, status, approved_at) VALUES
   ('30000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'node-a', 'linux', 'x86_64', 'online', now()),
-  ('30000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'node-b', 'android', 'aarch64', 'pending');
+  ('30000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'node-b', 'android', 'aarch64', 'pending', NULL);
 
 INSERT INTO node_credentials (node_id, secret_hash) VALUES
   ('30000000-0000-4000-8000-000000000001', repeat('a', 64)),
