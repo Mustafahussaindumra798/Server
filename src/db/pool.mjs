@@ -75,3 +75,51 @@ export async function withNodeHeartbeat(pool, heartbeat) {
     throw error;
   } finally { client.release(); }
 }
+
+
+export async function withNodeJobClaim(pool, claim) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const result = await client.query(
+      "SELECT * FROM app_private.claim_node_jobs($1, $2, $3, $4)",
+      [claim.nodeId, claim.credentialHash, claim.limit, claim.leaseSeconds]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return result.rows;
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function withNodeJobAcknowledgement(pool, acknowledgement) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const result = await client.query(
+      "SELECT * FROM app_private.acknowledge_node_job($1, $2, $3, $4, $5, $6, $7, $8)",
+      [
+        acknowledgement.nodeId, acknowledgement.credentialHash,
+        acknowledgement.jobId, acknowledgement.attemptId,
+        acknowledgement.leaseToken, acknowledgement.status,
+        acknowledgement.resultCode, acknowledgement.resultSummary
+      ]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return result.rows[0] || null;
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
