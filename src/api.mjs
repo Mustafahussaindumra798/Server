@@ -148,6 +148,27 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         return true;
       }
 
+      const heartbeatMatch = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/heartbeat$/i);
+      if (heartbeatMatch && request.method === "POST") {
+        if (!pool) { const error = new Error("Node heartbeat is not configured with a database."); error.status = 503; throw error; }
+        const nodeId = requireUuid(heartbeatMatch[1], "node_id");
+        const credential = String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1];
+        if (!credential) { const error = new Error("A valid node credential is required."); error.status = 401; throw error; }
+        const body = await readJson(request);
+        if (!["healthy", "degraded"].includes(body.health_status)) { const error = new Error("health_status must be healthy or degraded."); error.status = 400; throw error; }
+        const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
+        const resources = body.resources == null ? {} : body.resources;
+        const allowed = new Set(["cpu_percent","memory_total_bytes","memory_used_bytes","disk_total_bytes","disk_available_bytes","load_1m","uptime_seconds","battery_percent","temperature_c"]);
+        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 9 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100))) {
+          const error = new Error("resources must contain only supported finite numeric metrics within their allowed ranges (8 KiB maximum)."); error.status = 400; throw error;
+        }
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources });
+        if (!heartbeat) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
+        send(response, 200, { node: { id: heartbeat.node_id, status: heartbeat.status, last_seen_at: heartbeat.last_seen_at } }, requestId);
+        return true;
+      }
+
       if (!pool) {
         const error = new Error("Authentication API is not configured with a database.");
         error.status = 503;
@@ -188,6 +209,12 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         const tenantId = route[1];
         const resource = route[2];
         const role = await getMembership(client, tenantId, user.id);
+
+        if (resource === "nodes" && request.method === "GET") {
+          requirePermission(role, "read");
+          const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
+          return { status: 200, body: { nodes: nodes.rows } };
+        }
 
         if (resource === "applications" && request.method === "GET") {
           requirePermission(role, "read");
