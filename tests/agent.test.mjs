@@ -19,7 +19,10 @@ test("Linux identity accepts only supported 64-bit architectures", () => {
   assert.deepEqual(getLinuxIdentity("linux", "arm64"), { platform: "linux", architecture: "aarch64", environment: "linux" });
   assert.deepEqual(getLinuxIdentity("linux", "arm64", { TERMUX_VERSION: "0.118" }), { platform: "android", architecture: "aarch64", environment: "termux" });
   assert.deepEqual(getLinuxIdentity("linux", "arm64", { PREFIX: "/data/data/com.termux/files/usr" }), { platform: "android", architecture: "aarch64", environment: "termux" });
-  assert.throws(() => getLinuxIdentity("win32", "x64"), /Linux-compatible host/);
+  assert.deepEqual(getLinuxIdentity("android", "arm64", { TERMUX_VERSION: "0.118" }), { platform: "android", architecture: "aarch64", environment: "termux" });
+  assert.deepEqual(getLinuxIdentity("android", "arm64", { PREFIX: "/data/data/com.termux/files/usr" }), { platform: "android", architecture: "aarch64", environment: "termux" });
+  assert.throws(() => getLinuxIdentity("android", "arm64", {}), /Linux or Android running Termux/);
+  assert.throws(() => getLinuxIdentity("win32", "x64"), /Linux or Android running Termux/);
   assert.throws(() => getLinuxIdentity("linux", "ia32"), /Unsupported Linux architecture/);
 });
 
