@@ -32,6 +32,7 @@
 - [x] Add Vercel Node.js Function adapter for the existing versioned API
 - [x] Add a Vercel health endpoint with a real PostgreSQL connectivity check
 - [x] Bound serverless PostgreSQL pool size to one connection per function instance by default
+- [x] Add automated tests for Vercel configuration and bounded serverless PostgreSQL pool
 - [x] Add Vercel project configuration for root-level static dashboard assets and API functions
 - [x] Add Supabase least-privilege runtime-role SQL for migrations 001–005
 - [x] Document migration order, Supabase Transaction Pooler connection, Vercel root directory and environment variables
@@ -39,6 +40,8 @@
 - [ ] Configure production Vercel environment variables and deploy the project
 - [ ] Verify the deployed dashboard and `/api/health` against the live Supabase database
 - [ ] Configure a real OIDC provider and provision the first owner identity
+
+**Verification:** GitHub Actions run [#89](https://github.com/danyalbut96-khan/Server/actions/runs/44978016818) passed: migrations 001–005, PostgreSQL integration checks, and the complete application test suite including the new Vercel/pool tests.
 
 **Deployment guide:** [Vercel + Supabase](deployment/vercel-supabase.md). Code and configuration are committed; no live Supabase database has been modified and no Vercel deployment has been created by this repository change.
 
