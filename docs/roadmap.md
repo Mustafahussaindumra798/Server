@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment and heartbeat backend are CI-verified. No packaged production node agent is connected.
+**Current stage:** Milestone 2 — node enrollment, heartbeat backend, and safe typed diagnostic job protocol are CI-verified. No packaged production node agent is connected.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -25,7 +25,7 @@
 - [ ] Provision a live PostgreSQL runtime role and deployment environment
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
-**Verification:** GitHub Actions run [#29](https://github.com/danyalbut96-khan/Server/actions/runs/44974907250) passed on `main` commit `23530aefa93abd3bb674179a8cfffc1a396041fe`. It applied migrations 001–004, passed PostgreSQL integration checks, and passed the application test suite against disposable PostgreSQL 16 CI infrastructure.
+**Verification:** GitHub Actions run [#55](https://github.com/danyalbut96-khan/Server/actions/runs/44976273422) passed on `main` commit `e7dc87b8f6dcbced724f2f97b921e8b7f114a8ce`. It applied migrations 001–005, passed PostgreSQL integration checks for node job leases/retries/stale acknowledgements, and passed the application test suite against disposable PostgreSQL 16 CI infrastructure. Earlier heartbeat verification is recorded in run [#29](https://github.com/danyalbut96-khan/Server/actions/runs/44974907250).
 
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment token issuance with configurable expiry
@@ -43,7 +43,7 @@
 - [x] Add bounded health/resource reporting and server-side last-seen tracking
 - [x] Derive offline status after three missed heartbeat intervals
 - [x] Test invalid, expired and revoked credentials and cross-node credential isolation
-- [ ] Add safe command allowlist and job reconciliation
+- [x] Add strict typed diagnostic allowlist (`probe`, `collect_metrics`); reject arbitrary shell commands and non-empty payloads\n- [x] Add tenant-scoped job creation/listing with Owner/Admin/Operator authorization and idempotency keys\n- [x] Add credential-authenticated node job polling with bounded batch and lease parameters\n- [x] Add unique attempt IDs, lease tokens, and guarded acknowledgement state transitions\n- [x] Reconcile expired leases and retry failed attempts with bounded backoff and a five-attempt limit\n- [x] Add API and PostgreSQL integration coverage for permissions, cross-node isolation, retries and stale leases\n\nSee [Safe node jobs](node-jobs.md) for the protocol contract and security boundary.
 
 ## Milestone 3 — Scheduler and deployment lifecycle
 - [ ] Resource admission and placement policy
