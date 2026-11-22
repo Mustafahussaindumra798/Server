@@ -13,6 +13,29 @@ CREATE INDEX jobs_available_queue_idx
   ON jobs (node_id, available_at, created_at)
   WHERE status = 'queued';
 
+
+CREATE OR REPLACE FUNCTION app_private.node_credential_is_valid(
+  p_node_id uuid,
+  p_credential_hash text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, app_private
+AS $credential_check$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.node_credentials AS credential
+    JOIN public.nodes AS node ON node.id = credential.node_id
+    WHERE node.id = p_node_id
+      AND node.status <> 'revoked'
+      AND credential.secret_hash = p_credential_hash
+      AND credential.revoked_at IS NULL
+      AND (credential.expires_at IS NULL OR credential.expires_at > clock_timestamp())
+  )
+$credential_check$;
+
 CREATE OR REPLACE FUNCTION app_private.claim_node_jobs(
   p_node_id uuid,
   p_credential_hash text,
@@ -215,7 +238,7 @@ BEGIN
 END
 $ack_job$;
 
-REVOKE ALL ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_private.node_credential_is_valid(uuid,text) FROM PUBLIC;\nREVOKE ALL ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) FROM PUBLIC;
 
 COMMIT;
