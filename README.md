@@ -32,6 +32,7 @@ Follow [Vercel + Supabase deployment](docs/deployment/vercel-supabase.md) and [S
 - [Authentication and tenant RBAC](docs/authentication-rbac.md)
 - [Safe node job protocol](docs/node-jobs.md)
 - [Node heartbeat API](docs/node-heartbeat.md)
+- [Android / Termux node agent](docs/termux-agent.md)
 - [System architecture](docs/architecture.md)
 - [Delivery roadmap](docs/roadmap.md)
 
