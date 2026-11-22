@@ -190,6 +190,44 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         return true;
       }
 
+      const claimMatch = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/jobs\/claim$/i);
+      if (claimMatch && request.method === "POST") {
+        if (!pool) { const error = new Error("Node job polling is not configured with a database."); error.status = 503; throw error; }
+        const nodeId = requireUuid(claimMatch[1], "node_id");
+        const credential = nodeCredential(request);
+        if (!credential) { const error = new Error("A valid node credential is required."); error.status = 401; throw error; }
+        const body = await readJson(request);
+        const limit = body.limit == null ? 1 : body.limit;
+        const leaseSeconds = body.lease_seconds == null ? 60 : body.lease_seconds;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 10) { const error = new Error("limit must be an integer between 1 and 10."); error.status = 400; throw error; }
+        if (!Number.isInteger(leaseSeconds) || leaseSeconds < 15 || leaseSeconds > 300) { const error = new Error("lease_seconds must be an integer between 15 and 300."); error.status = 400; throw error; }
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const jobs = await withNodeJobClaim(pool, { nodeId, credentialHash, limit, leaseSeconds });
+        if (jobs === null) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
+        send(response, 200, { jobs }, requestId);
+        return true;
+      }
+
+      const acknowledgeMatch = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/jobs\/([0-9a-f-]{36})\/ack$/i);
+      if (acknowledgeMatch && request.method === "POST") {
+        if (!pool) { const error = new Error("Node job acknowledgement is not configured with a database."); error.status = 503; throw error; }
+        const nodeId = requireUuid(acknowledgeMatch[1], "node_id");
+        const jobId = requireUuid(acknowledgeMatch[2], "job_id");
+        const credential = nodeCredential(request);
+        if (!credential) { const error = new Error("A valid node credential is required."); error.status = 401; throw error; }
+        const body = await readJson(request);
+        const attemptId = requireUuid(body.attempt_id, "attempt_id");
+        const leaseToken = requireUuid(body.lease_token, "lease_token");
+        if (!["accepted", "running", "succeeded", "failed", "rejected"].includes(body.status)) { const error = new Error("status must be accepted, running, succeeded, failed or rejected."); error.status = 400; throw error; }
+        const resultCode = body.result_code == null ? null : requireText(body.result_code, "result_code", 80);
+        const resultSummary = body.result_summary == null ? null : requireText(body.result_summary, "result_summary", 4000);
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const acknowledgement = await withNodeJobAcknowledgement(pool, { nodeId, credentialHash, jobId, attemptId, leaseToken, status: body.status, resultCode, resultSummary });
+        if (!acknowledgement) { const error = new Error("Job lease is invalid, expired, stale or does not belong to this node."); error.status = 409; throw error; }
+        send(response, 200, { job: acknowledgement }, requestId);
+        return true;
+      }
+
       if (!pool) {
         const error = new Error("Authentication API is not configured with a database.");
         error.status = 503;
