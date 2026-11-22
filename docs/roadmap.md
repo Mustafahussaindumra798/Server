@@ -27,6 +27,21 @@
 
 **Verification:** GitHub Actions run [#55](https://github.com/danyalbut96-khan/Server/actions/runs/44976273422) passed on `main` commit `e7dc87b8f6dcbced724f2f97b921e8b7f114a8ce`. It applied migrations 001–005, passed PostgreSQL integration checks for node job leases/retries/stale acknowledgements, and passed the application test suite against disposable PostgreSQL 16 CI infrastructure. Earlier heartbeat verification is recorded in run [#29](https://github.com/danyalbut96-khan/Server/actions/runs/44974907250).
 
+## Independent control-plane deployment foundation
+
+- [x] Add Vercel Node.js Function adapter for the existing versioned API
+- [x] Add a Vercel health endpoint with a real PostgreSQL connectivity check
+- [x] Bound serverless PostgreSQL pool size to one connection per function instance by default
+- [x] Add Vercel project configuration for root-level static dashboard assets and API functions
+- [x] Add Supabase least-privilege runtime-role SQL for migrations 001–005
+- [x] Document migration order, Supabase Transaction Pooler connection, Vercel root directory and environment variables
+- [ ] Apply migrations and create the runtime role in the user's Supabase project
+- [ ] Configure production Vercel environment variables and deploy the project
+- [ ] Verify the deployed dashboard and `/api/health` against the live Supabase database
+- [ ] Configure a real OIDC provider and provision the first owner identity
+
+**Deployment guide:** [Vercel + Supabase](deployment/vercel-supabase.md). Code and configuration are committed; no live Supabase database has been modified and no Vercel deployment has been created by this repository change.
+
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment token issuance with configurable expiry
 - [x] Store only SHA-256 enrollment-token hashes
