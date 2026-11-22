@@ -6,8 +6,8 @@ import { getCapabilities, getLinuxIdentity, readLinuxMetrics, validateControlPla
 import { defaultStateDirectory, loadAgentState, saveAgentState } from "./src/agent/state.mjs";
 
 export const AGENT_VERSION = "0.1.0";
-const DEFAULT_HEARTBEAT_SECONDS = 60;
-const DEFAULT_POLL_SECONDS = 10;
+const DEFAULT_HEARTBEAT_SECONDS = 3;
+const DEFAULT_POLL_SECONDS = 5;
 const REQUEST_TIMEOUT_MS = 12_000;
 
 export class AgentAuthenticationError extends Error {}
@@ -108,8 +108,8 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
 
 export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log } = {}) {
   getLinuxIdentity();
-  if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 15 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 15 and 300 seconds.");
-  if (!Number.isInteger(pollSeconds) || pollSeconds < 5 || pollSeconds > 120) throw new Error("Poll interval must be between 5 and 120 seconds.");
+  if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 3 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 3 and 300 seconds.");
+  if (!Number.isInteger(pollSeconds) || pollSeconds < 3 || pollSeconds > 120) throw new Error("Poll interval must be between 3 and 120 seconds.");
   const state = await loadAgentState(stateDirectory);
   const identity = getLinuxIdentity();
   let nextHeartbeat = 0;
@@ -190,8 +190,8 @@ function usage() {
     "  CLOUDEXIFY_AGENT_STATE_DIR    Optional; defaults to ~/.local/share/cloudexify-agent",
     "",
     "Runtime environment:",
-    "  CLOUDEXIFY_HEARTBEAT_SECONDS  Optional; 15–300, default 60",
-    "  CLOUDEXIFY_POLL_SECONDS       Optional; 5–120, default 10"
+    "  CLOUDEXIFY_HEARTBEAT_SECONDS  Optional; 3–300, default 3",
+    "  CLOUDEXIFY_POLL_SECONDS       Optional; 3–120, default 5"
   ].join("\n") + "\n");
 }
 
