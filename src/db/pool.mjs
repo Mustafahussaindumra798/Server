@@ -1,12 +1,15 @@
 import { Pool } from "pg";
 
-export function createDatabasePool(connectionString) {
+export function createDatabasePool(connectionString, { max = process.env.VERCEL ? 1 : 10 } = {}) {
   if (!connectionString) throw new Error("DATABASE_URL is required.");
+  if (!Number.isInteger(max) || max < 1 || max > 10) {
+    throw new Error("Database pool max must be an integer between 1 and 10.");
+  }
   return new Pool({
     connectionString,
-    max: 10,
+    max,
     connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 30000,
+    idleTimeoutMillis: 10000,
     application_name: "cloudexify-control-plane"
   });
 }
