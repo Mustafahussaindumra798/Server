@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 
--- This script runs after migrations 001-004 on a disposable PostgreSQL database.
+-- This script runs after migrations 001-005 on a disposable PostgreSQL database.
 -- Fixtures use fixed UUIDs so the assertions are deterministic.
 
 DO $$
@@ -127,6 +127,104 @@ BEGIN
  IF result_count<>0 THEN RAISE EXCEPTION 'Cross-node credential accepted'; END IF;
 END $heartbeat_rejections$;
 
+
+-- Typed job leasing, acknowledgements, retry and stale-lease rejection.
+DO $job_lifecycle$
+DECLARE
+  claimed record;
+  retried record;
+  acknowledgement record;
+  attempt_total integer;
+  stale_total integer;
+BEGIN
+  SELECT * INTO claimed
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF claimed.job_id <> '60000000-0000-4000-8000-000000000001'
+     OR claimed.job_type <> 'probe' OR claimed.attempt_number <> 1
+     OR claimed.attempt_id IS NULL OR claimed.lease_token IS NULL THEN
+    RAISE EXCEPTION 'Approved node did not receive a valid typed job lease';
+  END IF;
+
+  SELECT * INTO acknowledgement
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    claimed.job_id, claimed.attempt_id, claimed.lease_token,
+    'failed', 'transient', 'Simulated transient failure'
+  );
+  IF acknowledgement.status <> 'queued' OR acknowledgement.retry_at IS NULL THEN
+    RAISE EXCEPTION 'Failed job was not scheduled for retry';
+  END IF;
+
+  UPDATE jobs SET available_at = now()
+  WHERE id = claimed.job_id;
+
+  SELECT * INTO retried
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF retried.job_id <> claimed.job_id OR retried.attempt_number <> 2
+     OR retried.attempt_id = claimed.attempt_id THEN
+    RAISE EXCEPTION 'Job retry did not create a new isolated attempt';
+  END IF;
+
+  SELECT * INTO acknowledgement
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, retried.attempt_id, retried.lease_token,
+    'accepted', NULL, NULL
+  );
+  IF acknowledgement.status <> 'accepted' THEN
+    RAISE EXCEPTION 'Job acceptance transition failed';
+  END IF;
+
+  SELECT * INTO acknowledgement
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, retried.attempt_id, retried.lease_token,
+    'running', NULL, NULL
+  );
+  IF acknowledgement.status <> 'running' THEN
+    RAISE EXCEPTION 'Job running transition failed';
+  END IF;
+
+  SELECT * INTO acknowledgement
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, retried.attempt_id, retried.lease_token,
+    'succeeded', 'ok', 'Diagnostic completed'
+  );
+  IF acknowledgement.status <> 'succeeded' THEN
+    RAISE EXCEPTION 'Job success transition failed';
+  END IF;
+
+  SELECT count(*) INTO attempt_total FROM job_attempts
+  WHERE job_id = claimed.job_id AND finished_at IS NOT NULL;
+  IF attempt_total <> 2 THEN
+    RAISE EXCEPTION 'Expected two completed job attempts, found %', attempt_total;
+  END IF;
+
+  SELECT count(*) INTO stale_total
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    claimed.job_id, claimed.attempt_id, claimed.lease_token,
+    'succeeded', 'stale', 'Must not overwrite the newer attempt'
+  );
+  IF stale_total <> 0 THEN
+    RAISE EXCEPTION 'Stale job lease was able to acknowledge completed work';
+  END IF;
+
+  SELECT count(*) INTO stale_total
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000002', repeat('a',64), 1, 60
+  );
+  IF stale_total <> 0 THEN
+    RAISE EXCEPTION 'Credential for another node was accepted for job polling';
+  END IF;
+END
+$job_lifecycle$;
+
 -- Verify tenant-aware composite foreign keys reject a node from another tenant.
 DO $$
 BEGIN
@@ -172,7 +270,7 @@ CREATE ROLE cloudexify_test_runtime LOGIN PASSWORD 'test-only-password'
 GRANT USAGE ON SCHEMA public, app_private TO cloudexify_test_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cloudexify_test_runtime;
 GRANT EXECUTE ON FUNCTION app_private.enroll_node(text,text,text,text,text,jsonb,text) TO cloudexify_test_runtime;
-GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb) TO cloudexify_test_runtime;
+GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid,text,integer,integer) TO cloudexify_test_runtime;\nGRANT EXECUTE ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) TO cloudexify_test_runtime;
 
 SET ROLE cloudexify_test_runtime;
 
