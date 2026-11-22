@@ -1,0 +1,35 @@
+[Unit]
+Description=Cloudexify Linux Node Agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=cloudexify-node
+Group=cloudexify-node
+StateDirectory=cloudexify-node
+StateDirectoryMode=0700
+Environment=CLOUDEXIFY_AGENT_STATE_DIR=/var/lib/cloudexify-node
+Environment=CLOUDEXIFY_HEARTBEAT_SECONDS=60
+Environment=CLOUDEXIFY_POLL_SECONDS=10
+EnvironmentFile=-/etc/cloudexify/node-agent.env
+WorkingDirectory=/opt/cloudexify-agent
+ExecStart=/usr/bin/node /opt/cloudexify-agent/agent.mjs run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/cloudexify-node
+
+[Install]
+WantedBy=multi-user.target
