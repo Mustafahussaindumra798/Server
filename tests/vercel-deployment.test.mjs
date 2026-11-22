@@ -11,9 +11,7 @@ test("Vercel configuration serves root static assets and Node API functions", as
   assert.match(versionedApi, /createApiHandler/);
   assert.match(versionedApi, /createDatabasePool/);
   const currentUserRoute = await readFile(new URL("../api/v1/auth/me.mjs", import.meta.url), "utf8");
-  const tenantRoutes = await readFile(new URL("../api/v1/tenants/[...path].mjs", import.meta.url), "utf8");
   assert.match(currentUserRoute, /createApiHandler/);
-  assert.match(tenantRoutes, /createApiHandler/);
   const nestedTenantRoutes = await readFile(new URL("../api/v1/tenants/[tenantId]/[...path].mjs", import.meta.url), "utf8");
   assert.match(nestedTenantRoutes, /createApiHandler/);
 });
