@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const AUTH_STORAGE_KEY = "cloudexify.server.auth.v1";
-const REFRESH_INTERVAL_MS = 15000;
+const REFRESH_INTERVAL_MS = 3000;
 let refreshInFlight = null;
 const state = { selectedNodeId: null, config: null, session: null, user: null, tenants: [], tenantId: null, page: "overview", data: { nodes: [], applications: [], deployments: [], jobs: [] }, timer: null, loading: false };
 
@@ -71,7 +71,14 @@ async function ensureFreshSession() {
 }
 async function api(path, options = {}) {
   await ensureFreshSession();
-  const response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: "Bearer " + state.session.access_token, ...(options.body ? { "content-type": "application/json" } : {}) }, cache: "no-store" });
+  let response;
+  try {
+    response = await fetch(path, { ...options, headers: { ...(options.headers || {}), authorization: "Bearer " + state.session.access_token, ...(options.body ? { "content-type": "application/json" } : {}) }, cache: "no-store" });
+  } catch (error) {
+    const networkError = new Error("Control plane network request failed. The last successful dashboard data is being kept; automatic retry is active.");
+    networkError.cause = error;
+    throw networkError;
+  }
   const payload = await response.json().catch(() => ({}));
   if (response.status === 401) { saveSession(null); throw new Error("Your session expired. Please sign in again."); }
   if (!response.ok) throw new Error(payload.error?.message || "Request failed (" + response.status + ").");
@@ -127,14 +134,12 @@ async function loadData() {
     return;
   }
   const base = "/api/v1/tenants/" + encodeURIComponent(state.tenantId);
-  const [nodes, applications, deployments, jobs] = await Promise.all([
-    api(base + "/nodes"), api(base + "/applications"), api(base + "/deployments"), api(base + "/jobs")
-  ]);
+  const snapshot = await api(base + "/overview");
   state.data = {
-    nodes: Array.isArray(nodes.nodes) ? nodes.nodes : [],
-    applications: Array.isArray(applications.applications) ? applications.applications : [],
-    deployments: Array.isArray(deployments.deployments) ? deployments.deployments : [],
-    jobs: Array.isArray(jobs.jobs) ? jobs.jobs : []
+    nodes: Array.isArray(snapshot.nodes) ? snapshot.nodes : [],
+    applications: Array.isArray(snapshot.applications) ? snapshot.applications : [],
+    deployments: Array.isArray(snapshot.deployments) ? snapshot.deployments : [],
+    jobs: Array.isArray(snapshot.jobs) ? snapshot.jobs : []
   };
   dashboardMessage("");
   $("#last-updated").textContent = "Updated " + new Date().toLocaleTimeString();
