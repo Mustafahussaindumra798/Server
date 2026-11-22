@@ -52,6 +52,20 @@
 
 See [Safe node jobs](node-jobs.md) for the protocol contract and security boundary.
 
+## Linux Node Agent Runtime
+- [x] Add Linux x86_64/aarch64 platform gate and conservative capability detection
+- [x] Implement one-time node enrollment using the existing control-plane API
+- [x] Store credentials atomically with owner-only permissions; reject symlinked/permissive state
+- [x] Implement authenticated heartbeat and bounded Linux CPU, memory, disk, load and uptime metrics
+- [x] Poll node-scoped typed jobs and execute only `probe` / `collect_metrics`
+- [x] Acknowledge accepted, running, succeeded and failed diagnostic states
+- [x] Add graceful SIGINT/SIGTERM shutdown and hardened systemd unit template
+- [x] Add credential storage, enrollment, metric, diagnostic and agent-loop tests
+- [x] Verify 49/49 tests on Ubuntu 22.04/24.04 with Node.js 20/22 ([CI run #6](https://github.com/danyalbut96-khan/Server/actions/runs/44977169157))
+- [ ] Qualify Debian 12 and physical ARM64 devices before production support
+
+See [Linux Node Agent Runtime](node-agent-linux.md) for enrollment, service setup and limitations.
+
 ## Milestone 3 — Scheduler and deployment lifecycle
 - [ ] Resource admission and placement policy
 - [ ] Deployment revisions, health gates, rollback and event stream
