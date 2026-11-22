@@ -32,3 +32,12 @@ test("dashboard uses a three-second refresh and a single snapshot request", asyn
   assert.match(app, /api\(base \+ "\/overview"\)/);
   assert.doesNotMatch(app, /api\(base \+ "\/nodes"\), api\(base \+ "\/applications"\)/);
 });
+
+
+test("dashboard refreshes Supabase sessions before expiry and retries stale access tokens once", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /SESSION_REFRESH_MARGIN_SECONDS = 300/);
+  assert.match(app, /ensureFreshSession\(\{ force: true \}\)/);
+  assert.match(app, /Preserve a valid refresh token during transient Auth\/network failures/);
+  assert.match(app, /response\.status === 401/);
+});
