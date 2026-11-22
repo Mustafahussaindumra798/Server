@@ -361,7 +361,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (resource === "jobs" && request.method === "POST") {
           requirePermission(role, "manageJobs");
           const body = await readJson(request);
-          const nodeId = requireUuid(body.node_id, "node_id");
+          const requestedNodeId = body.node_id == null || body.node_id === "" ? null : requireUuid(body.node_id, "node_id");
           const type = requireText(body.type, "type", 40).toLowerCase();
           const payload = validateJobPayload(type, body.payload == null ? {} : body.payload);
           const idempotencyKey = requireText(body.idempotency_key, "idempotency_key", 128);
@@ -370,18 +370,65 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
             error.status = 400;
             throw error;
           }
-          const target = await client.query(
-            "SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds FROM nodes WHERE id = $1 AND tenant_id = $2 LIMIT 1",
-            [nodeId, tenantId]
+          // Serialize identical idempotency keys across a tenant, then reuse an
+          // existing job before selecting a node. This keeps retries idempotent
+          // even if the scheduler's next preferred node has changed.
+          await client.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2, 0))",
+            [tenantId, idempotencyKey]
           );
-          if (!target.rows[0]) { const error = new Error("Node not found."); error.status = 404; throw error; }
-          const node = target.rows[0];
-          if (!node.approved_at || !["online", "degraded"].includes(node.status) || !node.last_seen_at ||
-              Date.now() - new Date(node.last_seen_at).getTime() > Number(node.heartbeat_interval_seconds) * 3000) {
-            const error = new Error("Node must be approved and recently online before it can receive jobs.");
+          let existing = await client.query(
+            "SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs WHERE tenant_id = $1 AND idempotency_key = $2 ORDER BY created_at ASC LIMIT 1",
+            [tenantId, idempotencyKey]
+          );
+          if (existing.rows[0]) {
+            const prior = existing.rows[0];
+            if (prior.type !== type || JSON.stringify(prior.payload) !== JSON.stringify(payload) ||
+                (requestedNodeId && prior.node_id !== requestedNodeId)) {
+              const error = new Error("idempotency_key has already been used for a different job request.");
+              error.status = 409;
+              throw error;
+            }
+            return { status: 200, body: { job: prior } };
+          }
+
+          let node;
+          if (requestedNodeId) {
+            const target = await client.query(
+              "SELECT id FROM nodes WHERE id = $1 AND tenant_id = $2 AND approved_at IS NOT NULL AND status IN ('online', 'degraded') AND last_seen_at > clock_timestamp() - make_interval(secs => heartbeat_interval_seconds * 3) FOR UPDATE",
+              [requestedNodeId, tenantId]
+            );
+            node = target.rows[0];
+          } else {
+            // Fair placement: choose the eligible node with the fewest outstanding
+            // jobs; break ties by the oldest previous assignment. Lock the chosen
+            // node so concurrent schedulers move to another available node.
+            const scheduled = await client.query(`
+              SELECT node.id,
+                (SELECT count(*)::integer FROM jobs AS workload
+                 WHERE workload.node_id = node.id
+                   AND workload.status IN ('queued', 'leased', 'accepted', 'running')) AS active_jobs,
+                (SELECT max(previous.created_at) FROM jobs AS previous
+                 WHERE previous.node_id = node.id) AS last_assigned_at
+              FROM nodes AS node
+              WHERE node.tenant_id = $1
+                AND node.approved_at IS NOT NULL
+                AND node.status IN ('online', 'degraded')
+                AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
+              ORDER BY active_jobs ASC, last_assigned_at ASC NULLS FIRST, node.id ASC
+              FOR UPDATE OF node SKIP LOCKED
+              LIMIT 1
+            `, [tenantId]);
+            node = scheduled.rows[0];
+          }
+          if (!node) {
+            const error = new Error(requestedNodeId
+              ? "The selected node is not approved and recently online."
+              : "No approved online nodes are currently available for scheduling.");
             error.status = 409;
             throw error;
           }
+          const nodeId = node.id;
           let created = await client.query(
             "INSERT INTO jobs (tenant_id, node_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, $4::jsonb, $5) ON CONFLICT (tenant_id, node_id, idempotency_key) DO NOTHING RETURNING id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at",
             [tenantId, nodeId, type, JSON.stringify(payload), idempotencyKey]
@@ -399,7 +446,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
             }
             status = 200;
           } else {
-            await audit(client, tenantId, user.id, "node.job.created", "job", created.rows[0].id, { node_id: nodeId, type });
+            await audit(client, tenantId, user.id, "node.job.created", "job", created.rows[0].id, { node_id: nodeId, type, placement: requestedNodeId ? "pinned" : "least_outstanding_jobs" });
           }
           return { status, body: { job: created.rows[0] } };
         }
