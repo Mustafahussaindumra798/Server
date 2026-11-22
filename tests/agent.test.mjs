@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getLinuxIdentity, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
-import { executeDiagnostic, enrollNode } from "../agent.mjs";
+import { executeDiagnostic, enrollNode, runAgent } from "../agent.mjs";
 
 const validState = {
   node_id: "30000000-0000-4000-8000-000000000001",
@@ -113,4 +113,38 @@ test("enrollment stores the credential only after a successful control-plane res
   assert.equal(calls[0].url, "https://control.example.test/api/v1/nodes/enroll");
   assert.equal(JSON.parse(calls[0].options.body).platform, "linux");
   assert.deepEqual(await loadAgentState(directory), { ...validState, enrolled_at: (await loadAgentState(directory)).enrolled_at });
+});
+
+test("agent sends heartbeat and polls its own node queue", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cloudexify-agent-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await saveAgentState(directory, validState);
+  const controller = new AbortController();
+  const calls = [];
+  const logs = [];
+  await runAgent({
+    stateDirectory: directory, signal: controller.signal, heartbeatSeconds: 15, pollSeconds: 5,
+    onLog: (level, message, fields) => logs.push({ level, message, fields }),
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith("/jobs/claim")) controller.abort();
+      const payload = url.endsWith("/heartbeat") ? { node: { status: "pending" } } : { jobs: [] };
+      return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  assert.ok(calls.some((call) => call.url.endsWith("/heartbeat")));
+  assert.ok(calls.some((call) => call.url.endsWith("/jobs/claim")));
+  for (const call of calls) assert.equal(call.options.headers.authorization, "Bearer " + validState.credential);
+  assert.equal(JSON.stringify(logs).includes(validState.credential), false);
+});
+
+test("agent stops when the control plane rejects its node credential", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cloudexify-agent-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await saveAgentState(directory, validState);
+  await assert.rejects(runAgent({
+    stateDirectory: directory, onLog: () => {},
+    fetchImpl: async () => new Response(JSON.stringify({ error: { message: "Node credential is invalid, expired or revoked." } }),
+      { status: 401, headers: { "content-type": "application/json" } })
+  }), /invalid, expired or revoked/);
 });
