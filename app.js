@@ -399,16 +399,17 @@ async function init() {
     if (!onlineNodes.length) { dashboardMessage("No approved online node is available for diagnostics.", true); return; }
     showResourceDialog({
       title: "Run node diagnostics",
-      description: "Choose one approved node and a non-mutating diagnostic task.",
+      description: "Automatic placement balances work across the approved online node pool. You can optionally pin a task to one node.",
       fields: [
-        { name: "node_id", label: "Target node", type: "select", required: true, options: onlineNodes.map((node, index) => ({ value: node.id, label: node.name + " · " + node.platform, selected: index === 0 })) },
+        { name: "node_id", label: "Placement", type: "select", required: false, options: [{ value: "", label: "Automatic · balance across node pool", selected: true }, ...onlineNodes.map((node) => ({ value: node.id, label: "Specific node · " + node.name + " · " + node.platform }))] },
         { name: "type", label: "Diagnostic task", type: "select", required: true, options: [{ value: "collect_metrics", label: "Collect resource metrics", selected: true }, { value: "probe", label: "Connectivity probe" }] }
       ],
       submitLabel: "Queue diagnostic",
       onSubmit: async (form) => {
-        const node = onlineNodes.find((item) => item.id === form.get("node_id"));
-        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/jobs", { method: "POST", body: JSON.stringify({ node_id: form.get("node_id"), type: form.get("type"), payload: {}, idempotency_key: "dashboard-" + crypto.randomUUID() }) });
-        dashboardMessage(form.get("type") + " job queued for " + (node?.name || "the selected node") + ".");
+        const selectedNodeId = form.get("node_id") || null;
+        const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/jobs", { method: "POST", body: JSON.stringify({ ...(selectedNodeId ? { node_id: selectedNodeId } : {}), type: form.get("type"), payload: {}, idempotency_key: "dashboard-" + crypto.randomUUID() }) });
+        const assignedNode = onlineNodes.find((item) => item.id === result.job?.node_id);
+        dashboardMessage(form.get("type") + " job queued on " + (assignedNode?.name || "the selected node") + (selectedNodeId ? "." : " by automatic pool scheduling."));
       }
     });
   });
