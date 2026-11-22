@@ -41,7 +41,8 @@
 - [x] Verify production login (user confirmed)
 - [x] Verify live dashboard node status using a real enrolled Android node (online heartbeat confirmed by user)
 - [ ] Verify resource metric values are rendered correctly in the dashboard
-- [ ] Distributed API rate limits and login abuse protection
+- [x] Vercel edge API rate limit: 600 requests per 60 seconds per source IP on `/api/v1/`
+- [ ] Per-user application-level rate limits and dedicated login abuse monitoring
 - [ ] Monitoring, secrets management and security review
 - [ ] Confirm Supabase Auth JWT/session policy; client-side refresh cannot extend the configured JWT lifetime
 
