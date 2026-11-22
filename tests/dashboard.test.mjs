@@ -24,3 +24,11 @@ test("dashboard escapes database values before rendering HTML", async () => {
   assert.match(app, /export const escapeHtml/);
   assert.match(app, /escapeHtml\(node\.name\)/);
 });
+
+
+test("dashboard uses a three-second refresh and a single snapshot request", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /REFRESH_INTERVAL_MS = 3000/);
+  assert.match(app, /api\(base \+ "\/overview"\)/);
+  assert.doesNotMatch(app, /api\(base \+ "\/nodes"\), api\(base \+ "\/applications"\)/);
+});
