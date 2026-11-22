@@ -183,7 +183,7 @@ test("node heartbeat authenticates credentials and stores validated resource met
 
 test("node heartbeat rejects missing, invalid, revoked or expired credentials", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
-  for (const authorization of [undefined, "Bearer innode-credential-test-012345678901234567890123"]) {
+  for (const authorization of [undefined, "Bearer revoked-node-credential-0123456789012345"]) {
     const headers = { "content-type": "application/json" }; if (authorization) headers.authorization = authorization;
     const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers, body: JSON.stringify({ health_status: "healthy", resources: {} }) });
     assert.equal(response.status, 401);
