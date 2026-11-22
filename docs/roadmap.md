@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment and credential lifecycle implemented and CI-verified. No production node agent is connected.
+**Current stage:** Milestone 2 — node enrollment and authenticated heartbeat backend implemented and CI-verified. No packaged production node agent is connected.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -25,7 +25,7 @@
 - [ ] Provision a live PostgreSQL runtime role and deployment environment
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
-**Verification:** Latest green GitHub Actions run applied migrations 001–003 to PostgreSQL 16, passed PostgreSQL identity/RLS and node-enrollment integration checks, and passed all 27 Node.js tests. The database was disposable CI infrastructure.
+**Verification:** Heartbeat verification is gated on the updated GitHub Actions workflow applying migrations 001–004 to PostgreSQL 16 and passing the expanded Node.js suite. The database is disposable CI infrastructure.
 
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment token issuance with configurable expiry
@@ -39,8 +39,10 @@
 - [x] PostgreSQL integration coverage for successful, expired and replayed enrollment tokens
 - [x] API tests for token permissions, token hashing, enrollment response and credential revocation
 - [x] Define supported OS/runtime matrix and qualification gates (Linux first; Android/Termux best-effort; Windows/macOS planned)
-- [ ] Build outbound authenticated enrollment and heartbeat
-- [ ] Add node capability and resource reporting
+- [x] Build authenticated node heartbeat endpoint for outbound agents
+- [x] Add bounded health/resource reporting and server-side last-seen tracking
+- [x] Derive offline status after three missed heartbeat intervals
+- [x] Test invalid, expired and revoked credentials and cross-node credential isolation
 - [ ] Add safe command allowlist and job reconciliation
 
 ## Milestone 3 — Scheduler and deployment lifecycle
