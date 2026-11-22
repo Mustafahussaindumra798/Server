@@ -295,7 +295,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           let updated;
           if (action === "approve") {
             updated = await client.query(
-              "UPDATE nodes SET approved_at = COALESCE(approved_at, now()), status = CASE WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END WHERE id = $1 AND tenant_id = $2 RETURNING id, status, approved_at, last_seen_at",
+              "UPDATE nodes SET approved_at = COALESCE(approved_at, now()), status = CASE WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE 'online' END WHERE id = $1 AND tenant_id = $2 RETURNING id, status, approved_at, last_seen_at",
               [nodeId, tenantId]
             );
           } else {
