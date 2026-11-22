@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and a Linux diagnostic agent are implemented. The Supabase Auth/live-dashboard integration is implemented in code and CI-verified; production login remains gated on the user's Supabase Auth environment variables and first-owner provisioning.
+**Current stage:** Milestone 2 — node enrollment, heartbeat backend, safe typed diagnostic jobs, and Linux/Termux agent foundations are implemented. Production login has been confirmed by the user. Android/Termux remains unqualified until a physical device completes enrollment, approval, heartbeat and metrics verification.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -25,20 +25,22 @@
 - [x] Audit events for application, deployment and membership creation
 - [x] API, auth and RBAC automated tests
 - [x] GitHub Actions PostgreSQL integration workflow passed for the Supabase Auth/live dashboard implementation (run #92)
-- [ ] Configure Supabase Auth environment variables in Vercel
-- [ ] Provision the first owner identity in the user's Supabase project
-- [ ] Verify production login and live dashboard data
+- [x] Configure Supabase Auth environment variables in Vercel (user confirmed)
+- [x] Provision the first owner identity in the user's Supabase project (user confirmed)
+- [x] Verify production login (user confirmed)
+- [ ] Verify live dashboard data using a real enrolled node
 - [ ] Production hardening: distributed rate limits, monitoring, secrets management and security review
 
 ## Independent control-plane deployment foundation
 - [x] Vercel Node.js Function adapter and health endpoint
 - [x] Explicit versioned API handler for `/api/v1/auth/me` plus a tenant-ID-scoped nested catch-all; tenant collection uses the versioned API adapter
-- [ ] Verify authenticated `/api/v1/auth/me` against production after deployment
+- [x] Verify authenticated dashboard login in production (user confirmed)
 - [x] Bounded serverless PostgreSQL pool
 - [x] Supabase least-privilege runtime-role SQL
 - [x] Vercel/Supabase deployment documentation
 - [x] User confirmed deployed `/api/health` endpoint is working
-- [ ] Verify live authenticated dashboard against the user's Supabase project
+- [x] Verify live authenticated dashboard login (user confirmed)
+- [ ] Verify live node data from a physical device
 
 ## Milestone 2 — Node enrollment and agent
 - [x] One-time, high-entropy enrollment tokens with configurable expiry
@@ -47,8 +49,14 @@
 - [x] Offline status after missed heartbeat intervals
 - [x] Strict typed diagnostic allowlist (`probe`, `collect_metrics`)
 - [x] Tenant-scoped jobs with idempotency, leases, retries and guarded acknowledgements
-- [x] Linux x86_64/aarch64 diagnostic node agent and CI compatibility tests
-- [ ] Qualify Debian 12 and physical ARM64 devices before production support
+- [x] Linux x86_64/aarch64 diagnostic node agent
+- [x] Android/Termux environment detection and optional battery/thermal metric collection added
+- [x] Unit coverage added for Android/Termux identity detection
+- [ ] Run automated test suite against latest agent changes
+- [ ] Add node approval/rejection workflow required before nodes can become online
+- [ ] Qualify Android/Termux on the user's physical phone
+- [ ] Verify real heartbeat and resource metrics appear in dashboard
+- [ ] Qualify Debian 12 and physical ARM64 Linux devices before production support
 
 ## Milestone 3 — Scheduler and deployment lifecycle
 - [ ] Resource admission and placement policy
