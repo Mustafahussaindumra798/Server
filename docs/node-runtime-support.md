@@ -68,4 +68,4 @@ A platform may be marked production-supported only when its CI/device test matri
 - [ ] Uninstall behavior that removes service registration and local secrets according to documented policy.
 - [ ] Platform-specific security review and supported-version policy.
 
-**Current validation status:** This document is a support policy, not evidence that an agent exists or that these platforms have passed qualification. No node agent, heartbeat client, OS service installer, or device test suite is delivered by this documentation milestone.
+**Current validation status:** Linux agent v0.1.0 now implements enrollment, owner-only credential storage, heartbeat reporting, and the two allowlisted diagnostic handlers. Ubuntu 22.04/24.04 and Node.js 20/22 CI qualification is in progress. No production certification, ARM64 device validation, automated installer/upgrader, or general workload execution is claimed.
