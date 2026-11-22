@@ -1,5 +1,5 @@
-import { createApiHandler } from "../../../../src/api.mjs";
-import { createDatabasePool } from "../../../../src/db/pool.mjs";
+import { createApiHandler } from "../../../src/api.mjs";
+import { createDatabasePool } from "../../../src/db/pool.mjs";
 
 const pool = process.env.DATABASE_URL ? createDatabasePool(process.env.DATABASE_URL, {
   max: process.env.DB_POOL_MAX ? Number(process.env.DB_POOL_MAX) : 1
