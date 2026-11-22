@@ -1,4 +1,5 @@
 import os from "node:os";
+import { existsSync } from "node:fs";
 import { readFile, statfs } from "node:fs/promises";
 import path from "node:path";
 
@@ -15,7 +16,7 @@ export function getCapabilities() {
   return {
     agent_protocol: 1,
     diagnostics: ["probe", "collect_metrics"],
-    service_manager: "systemd",
+    service_manager: existsSync("/run/systemd/system") ? "systemd" : null,
     container_runtime: null,
     workload_execution: false
   };
