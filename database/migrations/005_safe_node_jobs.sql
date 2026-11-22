@@ -20,7 +20,7 @@ CREATE OR REPLACE FUNCTION app_private.node_credential_is_valid(
 )
 RETURNS boolean
 LANGUAGE sql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, app_private
 AS $credential_check$
