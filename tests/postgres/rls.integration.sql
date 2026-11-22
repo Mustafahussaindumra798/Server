@@ -112,9 +112,9 @@ BEGIN
  IF (SELECT resource_metrics_json->>'cpu_percent' FROM nodes WHERE id=result.node_id)<>'12.5' THEN RAISE EXCEPTION 'Resource metrics were not persisted'; END IF;
  IF (SELECT last_used_at FROM node_credentials WHERE node_id=result.node_id AND secret_hash=repeat('a',64)) IS NULL THEN RAISE EXCEPTION 'Credential last-use time missing'; END IF;
 END $heartbeat_valid$;
-INSERT INTO node_credentials(node_id,secret_hash,expires_at) VALUES
- ('30000000-0000-4000-8000-000000000001',repeat('e',64),now()+interval '1 day'),
- ('30000000-0000-4000-8000-000000000001',repeat('9',64),now()-interval '1 second');
+INSERT INTO node_credentials(node_id,secret_hash,issued_at,expires_at) VALUES
+ ('30000000-0000-4000-8000-000000000001',repeat('e',64),now(),now()+interval '1 day'),
+ ('30000000-0000-4000-8000-000000000001',repeat('9',64),now()-interval '2 seconds',now()-interval '1 second');
 UPDATE node_credentials SET revoked_at=now() WHERE secret_hash=repeat('e',64);
 DO $heartbeat_rejections$
 DECLARE result_count integer;
