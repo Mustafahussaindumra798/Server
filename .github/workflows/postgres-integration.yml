@@ -47,6 +47,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/002_auth_identity_context.sql
       - name: Apply node enrollment migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/003_node_enrollment.sql
+      - name: Apply node heartbeat migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/004_node_heartbeat.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Run application tests
