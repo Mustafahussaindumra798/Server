@@ -1,5 +1,4 @@
 import tls from "node:tls";
-import { isIP } from "node:net";
 
 export const NODE_TUNNEL_ALPN = "cloudexify-node-tunnel/1";
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,8 +45,9 @@ export function createNodeTunnelServer({
     let peer;
     try { peer = getTunnelPeerIdentity(socket); }
     catch { socket.destroy(); return; }
-    let authorized = false;
     let welcomed = false;
+    let handshakeStarted = false;
+    let rechecking = false;
     let sequence = 0;
     let buffer = "";
     let lastPongAt = Date.now();
@@ -58,12 +58,13 @@ export function createNodeTunnelServer({
       clearInterval(recheckTimer);
     };
     socket.once("close", cleanup);
-    const rejectPeer = () => {
+    const rejectPeer = (code = null) => {
       if (!socket.destroyed) {
-        if (welcomed) {
-          try { writeFrame(socket, { type: "error", code: "NODE_TUNNEL_REVOKED" }); } catch {}
+        if (code) {
+          try { writeFrame(socket, { type: "error", code }); socket.end(); } catch { socket.destroy(); }
+        } else {
+          socket.destroy();
         }
-        socket.destroy();
       }
       cleanup();
     };
@@ -78,8 +79,7 @@ export function createNodeTunnelServer({
       } catch { return false; }
     };
     const start = async () => {
-      if (!(await authorize())) { rejectPeer(); return; }
-      authorized = true;
+      if (!(await authorize())) { rejectPeer("NODE_TUNNEL_REVOKED"); return; }
       welcomed = true;
       writeFrame(socket, { type: "welcome", protocol: 1, heartbeat_interval_ms: pingIntervalMs });
       onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber });
@@ -89,7 +89,13 @@ export function createNodeTunnelServer({
         try { writeFrame(socket, { type: "ping", sequence }); } catch { rejectPeer(); }
       }, pingIntervalMs);
       recheckTimer = setInterval(async () => {
-        if (!(await authorize())) rejectPeer();
+        if (rechecking || socket.destroyed) return;
+        rechecking = true;
+        try {
+          if (!(await authorize())) rejectPeer("NODE_TUNNEL_REVOKED");
+        } finally {
+          rechecking = false;
+        }
       }, authorizationRecheckMs);
       pingTimer.unref?.();
       recheckTimer.unref?.();
@@ -106,10 +112,11 @@ export function createNodeTunnelServer({
         let message;
         try { message = JSON.parse(line); } catch { rejectPeer(); return; }
         if (!welcomed) {
-          if (message.type !== "hello" || message.protocol !== 1 || message.node_id !== peer.nodeId) {
+          if (handshakeStarted || message.type !== "hello" || message.protocol !== 1 || message.node_id !== peer.nodeId) {
             rejectPeer();
             return;
           }
+          handshakeStarted = true;
           clearTimeout(handshakeTimer);
           void start();
         } else if (message.type === "pong" && Number.isSafeInteger(message.sequence) && message.sequence <= sequence) {
