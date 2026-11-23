@@ -45,7 +45,19 @@ export async function detectPodmanRuntime({
   const version = String(info?.version?.Version || info?.version?.version || "").slice(0, 40) || null;
   const graphDriver = String(info?.store?.graphDriverName || "").toLowerCase();
   const storageQuotaConfigured = env.CLOUDEXIFY_STORAGE_QUOTA_READY === "true";
-  const storageQuotaReady = graphDriver === "overlay" && storageQuotaConfigured;
+  const graphRoot = typeof info?.store?.graphRoot === "string" ? info.store.graphRoot : null;
+  let storageMetrics = null;
+  if (graphRoot) {
+    try {
+      const fs = await statfs(graphRoot);
+      const totalBytes = Number(fs.blocks) * Number(fs.bsize);
+      const availableBytes = Number(fs.bavail) * Number(fs.bsize);
+      if (Number.isSafeInteger(totalBytes) && totalBytes > 0 && Number.isSafeInteger(availableBytes) && availableBytes >= 0 && availableBytes <= totalBytes) {
+        storageMetrics = { total_bytes: totalBytes, available_bytes: availableBytes };
+      }
+    } catch { /* Podman storage capacity must be readable before placement */ }
+  }
+  const storageQuotaReady = graphDriver === "overlay" && storageQuotaConfigured && storageMetrics?.available_bytes > 0;
   let cgroupV2Available = false;
   try {
     const controllers = await readCgroupControllers();
@@ -65,7 +77,9 @@ export async function detectPodmanRuntime({
       available: graphDriver === "overlay",
       ready: storageQuotaReady,
       enforcement: graphDriver === "overlay" ? "podman-overlay-size" : null,
-      reason: storageQuotaReady ? null : graphDriver !== "overlay" ? "overlay-storage-driver-required" : "operator-storage-quota-attestation-required"
+      total_bytes: storageMetrics?.total_bytes ?? null,
+      available_bytes: storageMetrics?.available_bytes ?? null,
+      reason: storageQuotaReady ? null : graphDriver !== "overlay" ? "overlay-storage-driver-required" : !storageMetrics ? "podman-storage-filesystem-unavailable" : "operator-storage-quota-attestation-required"
     },
     reason: ready ? null : !rootless ? "podman_not_rootless" : "cgroup_v2_unavailable"
   };
