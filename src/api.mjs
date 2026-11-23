@@ -533,7 +533,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
                        WHEN status = 'pending' THEN 'pending'
                        WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline'
                        ELSE status END AS status,
-                  last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources
+                  last_seen_at, heartbeat_interval_seconds, ingress_draining, resource_metrics_json AS resources
                 FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200
               ) AS node_row), '[]'::jsonb) AS nodes,
               COALESCE((SELECT jsonb_agg(to_jsonb(app_row)) FROM (
