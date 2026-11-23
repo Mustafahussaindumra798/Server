@@ -116,6 +116,12 @@
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
 - [ ] Apply migration 007 to production DB and deploy the verified `main` build
+- [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
+- [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
+- [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
+- [ ] Persist refreshed runtime capabilities after enrollment and after runtime changes
+- [ ] Implement signed/immutable artifact references and content verification
+- [ ] Implement rootless OCI deployment adapter, per-application isolation, bounded resource limits and process lifecycle
 - [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
