@@ -268,7 +268,13 @@ function usage() {
     "",
     "Runtime environment:",
     "  CLOUDEXIFY_HEARTBEAT_SECONDS  Optional; 3–300, default 3",
-    "  CLOUDEXIFY_POLL_SECONDS       Optional; 3–120, default 5"
+    "  CLOUDEXIFY_POLL_SECONDS       Optional; 3–120, default 5",
+    "",
+    "Optional outbound mTLS tunnel (Linux only; configure all four):",
+    "  CLOUDEXIFY_TUNNEL_URL         HTTPS gateway origin",
+    "  CLOUDEXIFY_TUNNEL_CA          Gateway CA certificate path",
+    "  CLOUDEXIFY_TUNNEL_CERT        Per-node client certificate path",
+    "  CLOUDEXIFY_TUNNEL_KEY         Per-node private key path (0600)"
   ].join("\n") + "\n");
 }
 
