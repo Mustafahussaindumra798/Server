@@ -103,6 +103,12 @@
 - [x] Owner/Admin application desired-state API for running, stopped and suspended values, with tenant-scoped row locking and audit events
 - [x] Operator+ queued/scheduled deployment cancellation with safe terminal status and audit event; active workload stop fails closed until runtime support exists
 - [x] Dashboard controls for application desired state and queued deployment cancellation
+- [x] Application stop/suspend locks the application and its deployment revisions in a consistent order
+- [x] Stop/suspend cancels queued and scheduled revisions in the same transaction
+- [x] Stop/suspend fails closed with HTTP 409 when a deployment is already deploying or healthy
+- [x] Audit metadata records the requested state and number of cancelled revisions
+- [x] Dashboard reports how many queued deployments were cancelled by an application state change
+- [x] Lifecycle reconciliation API tests passed in GitHub Actions run #237
 - [x] API tests for state transitions, authorization and audit events (CI run #229 passed; dashboard CI run #230 passed)
 - [x] Health endpoint inspects existing PostgreSQL catalog metadata to report whether required schema and migration 007 are present, without exposing connection details
 - [x] Health endpoint automated tests (PostgreSQL integration CI run #232 passed)
