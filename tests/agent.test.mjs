@@ -174,6 +174,76 @@ test("agent sends heartbeat and polls its own node queue", async (t) => {
   assert.equal(JSON.stringify(logs).includes(validState.credential), false);
 });
 
+test("agent executes claimed diagnostic jobs and acknowledges each lease through terminal success", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cloudexify-agent-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await saveAgentState(directory, validState);
+  const controller = new AbortController();
+  const claimedJobs = [
+    {
+      job_id: "60000000-0000-4000-8000-000000000011",
+      job_type: "probe",
+      payload: {},
+      attempt_id: "70000000-0000-4000-8000-000000000011",
+      lease_token: "80000000-0000-4000-8000-000000000011"
+    },
+    {
+      job_id: "60000000-0000-4000-8000-000000000012",
+      job_type: "collect_metrics",
+      payload: {},
+      attempt_id: "70000000-0000-4000-8000-000000000012",
+      lease_token: "80000000-0000-4000-8000-000000000012"
+    }
+  ];
+  const acknowledgements = [];
+  const logs = [];
+  let claimCount = 0;
+  await runAgent({
+    stateDirectory: directory,
+    signal: controller.signal,
+    heartbeatSeconds: 15,
+    pollSeconds: 5,
+    onLog: (_level, message, fields) => {
+      logs.push({ message, fields });
+      if (message === "Diagnostic job completed" &&
+          logs.filter((entry) => entry.message === "Diagnostic job completed").length === 2) {
+        controller.abort();
+      }
+    },
+    fetchImpl: async (url, options) => {
+      if (url.endsWith("/runtime/reconcile")) return new Response(JSON.stringify({ reconciled_jobs: 0 }), { status: 200 });
+      if (url.endsWith("/heartbeat")) return new Response(JSON.stringify({ node: { status: "online" } }), { status: 200 });
+      if (url.endsWith("/jobs/claim")) {
+        claimCount += 1;
+        return new Response(JSON.stringify({ jobs: claimCount === 1 ? claimedJobs : [] }), { status: 200 });
+      }
+      if (url.endsWith("/api/health")) {
+        return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.endsWith("/ack")) {
+        const body = JSON.parse(options.body);
+        acknowledgements.push({ jobId: url.split("/jobs/")[1].split("/")[0], ...body });
+        return new Response(JSON.stringify({ job: { status: body.status } }), { status: 200 });
+      }
+      throw new Error("Unexpected agent request: " + url);
+    }
+  });
+
+  for (const job of claimedJobs) {
+    const attempts = acknowledgements.filter((entry) => entry.attempt_id === job.attempt_id);
+    assert.deepEqual(attempts.map((entry) => entry.status), ["accepted", "running", "succeeded"]);
+    for (const attempt of attempts) {
+      assert.equal(attempt.jobId, job.job_id);
+      assert.equal(attempt.lease_token, job.lease_token);
+    }
+  }
+  const successResults = acknowledgements.filter((entry) => entry.status === "succeeded");
+  assert.equal(successResults[0].result_code, "control_plane_reachable");
+  assert.equal(successResults[1].result_code, "metrics_collected");
+  assert.ok(JSON.parse(successResults[1].result_summary).cpu_cores >= 1);
+  assert.equal(logs.filter((entry) => entry.message === "Diagnostic job completed").length, 2);
+});
+
 test("agent terminally rejects workload jobs on nodes without qualified Podman", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "cloudexify-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
