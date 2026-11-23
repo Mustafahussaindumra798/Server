@@ -32,7 +32,10 @@ export function createRouteForwarder({
   let closed = false;
 
   const onTunnelDrain = () => {
-    for (const stream of streams.values()) stream.local.resume();
+    for (const stream of streams.values()) {
+      stream.tunnelBlocked = false;
+      if (!stream.gatewayPaused) stream.local.resume();
+    }
   };
   tunnelSocket.on?.("drain", onTunnelDrain);
 
@@ -80,7 +83,7 @@ export function createRouteForwarder({
       return false;
     }
     const local = connectImpl({ host: "127.0.0.1", port: claims.upstream.port });
-    const stream = { id, local, idleTimer: null, connected: false };
+    const stream = { id, local, idleTimer: null, connected: false, gatewayPaused: false, tunnelBlocked: false };
     streams.set(id, stream);
     touch(stream);
     local.setNoDelay?.(true);
@@ -102,7 +105,10 @@ export function createRouteForwarder({
         try {
           const writable = send(tunnelSocket, { type: "route_data", stream_id: id, data: part.toString("base64") });
           if (!writable) {
-            for (const active of streams.values()) active.local.pause();
+            for (const active of streams.values()) {
+              active.tunnelBlocked = true;
+              active.local.pause();
+            }
           }
         } catch { closeStream(id, "tunnel_write_failed", false); return; }
       }
@@ -137,8 +143,13 @@ export function createRouteForwarder({
       if (!STREAM_ID.test(message.stream_id || "")) return false;
       const stream = streams.get(message.stream_id);
       if (!stream || !stream.connected) return false;
-      if (message.type === "route_pause") stream.local.pause();
-      else stream.local.resume();
+      if (message.type === "route_pause") {
+        stream.gatewayPaused = true;
+        stream.local.pause();
+      } else {
+        stream.gatewayPaused = false;
+        if (!stream.tunnelBlocked) stream.local.resume();
+      }
       return true;
     }
     if (message.type === "route_close") {
