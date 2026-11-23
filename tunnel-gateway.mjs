@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { createDatabasePool } from "./src/db/pool.mjs";
 import { createNodeTunnelServer, createTunnelCertificateAuthorizer } from "./src/ingress/mtls-tunnel.mjs";
+import { createRouteStreamManager } from "./src/ingress/route-streams.mjs";
 
 function required(name) {
   const value = process.env[name];
@@ -41,6 +42,7 @@ async function main() {
   const port = Number(process.env.CLOUDEXIFY_TUNNEL_LISTEN_PORT || 9443);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("CLOUDEXIFY_TUNNEL_LISTEN_PORT must be between 1 and 65535.");
   const pool = createDatabasePool(required("DATABASE_URL"), { max: 10, queryTimeoutMillis: 5000 });
+  const routeStreams = createRouteStreamManager();
   const server = createNodeTunnelServer({
     tlsOptions: {
       key: readTlsFile("CLOUDEXIFY_TUNNEL_SERVER_KEY", { privateKey: true }),
@@ -63,7 +65,8 @@ async function main() {
     listen_host: host,
     listen_port: port,
     protocol: "mTLS/TLS1.3",
-    forwarding_enabled: false
+    route_streams_enabled: true,
+    public_ingress_enabled: false
   }) + "\n");
 
   const shutdown = () => {
