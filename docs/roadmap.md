@@ -152,7 +152,9 @@
 - [x] Add PostgreSQL tests for endpoint registration, forged container identity rejection and stop cleanup
 - [ ] Verify automatic rollback on a qualified physical Linux node; public traffic switching remains blocked on reverse-proxy ingress/TLS
 - [x] Define secure multi-node ingress architecture: public gateway, node-initiated authenticated reverse tunnels, strict tenant/deployment route binding and fail-closed lifecycle (design decision only; no public ingress enabled)
-- [ ] Implement tenant-scoped domain claims, DNS ownership verification and auditable challenge lifecycle
+- [x] Add tenant-scoped domain claim and DNS challenge schema with canonical hostname constraints, global active-hostname uniqueness, one-live-challenge enforcement, one-hour expiry bounds and tenant RLS (migration 015)
+- [x] Add atomic one-time challenge consumption, verified-state transition and append-only audit event function; PostgreSQL integration covers cross-tenant isolation, duplicate claims, malformed DNS names, mismatched records, wrong/expired/replayed tokens
+- [ ] Implement API-side DNS TXT resolution, secure token generation/return-once flow and domain claim endpoints
 - [ ] Implement route registry derived only from healthy, fresh deployment endpoints
 - [ ] Implement per-node outbound mTLS tunnel and restricted loopback-only forwarder
 - [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
