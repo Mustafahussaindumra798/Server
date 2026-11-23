@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { createDatabasePool } from "./src/db/pool.mjs";
 import { createNodeTunnelServer, createTunnelCertificateAuthorizer } from "./src/ingress/mtls-tunnel.mjs";
@@ -8,6 +8,16 @@ function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(name + " is required.");
   return value;
+}
+
+function readTlsFile(name, { privateKey = false } = {}) {
+  const filePath = required(name);
+  const info = lstatSync(filePath);
+  if (info.isSymbolicLink() || !info.isFile()) throw new Error(name + " must reference a regular file, not a symlink.");
+  if (typeof process.getuid === "function" && info.uid !== process.getuid()) throw new Error(name + " must be owned by the gateway service user.");
+  if (privateKey && (info.mode & 0o077) !== 0) throw new Error(name + " permissions must be 0600 or stricter.");
+  if (info.size > 128 * 1024) throw new Error(name + " exceeds the allowed 128 KiB size.");
+  return readFileSync(filePath);
 }
 
 function listenAddress(value) {
@@ -33,9 +43,9 @@ async function main() {
   const pool = createDatabasePool(required("DATABASE_URL"), { max: 10, queryTimeoutMillis: 5000 });
   const server = createNodeTunnelServer({
     tlsOptions: {
-      key: readFileSync(required("CLOUDEXIFY_TUNNEL_SERVER_KEY")),
-      cert: readFileSync(required("CLOUDEXIFY_TUNNEL_SERVER_CERT")),
-      ca: readFileSync(required("CLOUDEXIFY_TUNNEL_CLIENT_CA"))
+      key: readTlsFile("CLOUDEXIFY_TUNNEL_SERVER_KEY", { privateKey: true }),
+      cert: readTlsFile("CLOUDEXIFY_TUNNEL_SERVER_CERT"),
+      ca: readTlsFile("CLOUDEXIFY_TUNNEL_CLIENT_CA")
     },
     authorizeCertificate: createTunnelCertificateAuthorizer(pool),
     onConnection: ({ nodeId }) => process.stdout.write(JSON.stringify({
