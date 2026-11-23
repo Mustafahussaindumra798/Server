@@ -563,8 +563,51 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
 
         if (resource === "nodes" && request.method === "GET") {
           requirePermission(role, "read");
-          const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
+          const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, ingress_draining, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
           return { status: 200, body: { nodes: nodes.rows } };
+        }
+
+        if (resource === "nodes" && route[3] && route[6] && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const nodeId = requireUuid(route[3], "node_id");
+          const body = await readJson(request);
+          if (!["active", "draining"].includes(body.ingress_state)) {
+            const error = new Error("ingress_state must be active or draining.");
+            error.status = 400;
+            throw error;
+          }
+          const target = await client.query(
+            "SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds, capabilities_json, ingress_draining FROM nodes WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [nodeId, tenantId]
+          );
+          const current = target.rows[0];
+          if (!current) { const error = new Error("Node not found."); error.status = 404; throw error; }
+          if (current.status === "revoked" || !current.approved_at) {
+            const error = new Error("Only approved, non-revoked nodes can change ingress state.");
+            error.status = 409;
+            throw error;
+          }
+          const shouldDrain = body.ingress_state === "draining";
+          if (!shouldDrain && (
+            current.status !== "online" ||
+            !current.last_seen_at ||
+            new Date(current.last_seen_at).getTime() <= Date.now() - Number(current.heartbeat_interval_seconds) * 3000 ||
+            current.capabilities_json?.ingress_tunnel !== true ||
+            current.capabilities_json?.loopback_forwarder !== true
+          )) {
+            const error = new Error("Only a fresh online Linux node with authenticated ingress tunnel and loopback-forwarder capability can resume ingress.");
+            error.status = 409;
+            throw error;
+          }
+          const updated = await client.query(
+            "UPDATE nodes SET ingress_draining = $3 WHERE id = $1 AND tenant_id = $2 RETURNING id, status, ingress_draining, last_seen_at",
+            [nodeId, tenantId, shouldDrain]
+          );
+          await audit(client, tenantId, user.id, shouldDrain ? "node.ingress.draining" : "node.ingress.resumed", "node", nodeId, {
+            previous_ingress_draining: current.ingress_draining === true,
+            ingress_draining: shouldDrain
+          });
+          return { status: 200, body: { node: updated.rows[0] } };
         }
 
         if (resource === "nodes" && route[3] && route[5] && request.method === "POST") {
