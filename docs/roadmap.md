@@ -158,7 +158,8 @@
 - [x] Verify exact DNS TXT challenge values through the DNS resolver; reject mismatch/replay, report missing records, handle resolver failure, and audit successful verification
 - [x] Add domain API/RBAC/health tests and API contract documentation (`docs/domain-management-api.md`)
 - [x] Add internal deployment-to-domain route registry with tenant-bound composite references, verified-domain and healthy/fresh endpoint checks, approved Linux node checks, lifecycle suspension/recovery, audit events and PostgreSQL integration coverage (migration 016); routes remain pending transport and cannot be activated
-- [ ] Implement per-node outbound mTLS tunnel and restricted loopback-only forwarder
+- [x] Implement outbound TLS 1.3/mTLS control tunnel with per-node certificate CN identity, SHA-256 fingerprint registry, database-backed revocation and node/tenant freshness checks (migration 017); reconnect backoff, private ALPN and gateway heartbeat rechecks implemented; forwarding remains disabled
+- [ ] Implement route-grant protocol and restricted loopback-only forwarder bound to verified deployment endpoints
 - [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
@@ -171,7 +172,9 @@
 - [ ] Persistent per-application volumes and backup/restore
 
 ## Milestone 4 — Networking and operations
-- [ ] Domain routing, TLS, service discovery and ingress
+- [x] Establish private outbound mTLS control transport between Linux nodes and the gateway
+- [ ] Restricted per-deployment loopback forwarding and route authorization
+- [ ] Public domain routing, TLS termination, service discovery and ingress
 - [ ] Logs, metrics, alerts, backups and recovery drills
 - [ ] Upgrade strategy and credential rotation
 
