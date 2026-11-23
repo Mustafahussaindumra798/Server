@@ -517,6 +517,32 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
             [applicationId, tenantId]
           );
           if (!current.rows[0]) { const error = new Error("Application not found."); error.status = 404; throw error; }
+
+          // Lock deployment revisions after the application row. Deployment creation
+          // takes the same application lock first, preventing concurrent placement
+          // from racing with a stop/suspend request.
+          let cancelledDeploymentCount = 0;
+          if (["stopped", "suspended"].includes(desiredState)) {
+            const revisions = await client.query(
+              "SELECT id, status FROM deployments WHERE application_id = $1 AND tenant_id = $2 AND status IN ('queued', 'scheduled', 'deploying', 'healthy') ORDER BY revision FOR UPDATE",
+              [applicationId, tenantId]
+            );
+            const active = revisions.rows.filter((revision) => ["deploying", "healthy"].includes(revision.status));
+            if (active.length) {
+              const error = new Error("Application has an active deployment. A node runtime is required to stop it safely; no state was changed.");
+              error.status = 409;
+              throw error;
+            }
+            const pendingIds = revisions.rows.filter((revision) => ["queued", "scheduled"].includes(revision.status)).map((revision) => revision.id);
+            if (pendingIds.length) {
+              const cancelled = await client.query(
+                "UPDATE deployments SET desired_state = 'stopped', status = 'cancelled', updated_at = now() WHERE tenant_id = $1 AND application_id = $2 AND id = ANY($3::uuid[]) RETURNING id",
+                [tenantId, applicationId, pendingIds]
+              );
+              cancelledDeploymentCount = cancelled.rowCount ?? cancelled.rows.length;
+            }
+          }
+
           const updated = await client.query(
             "UPDATE applications SET desired_state = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, name, desired_state, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
             [applicationId, tenantId, desiredState]
@@ -524,9 +550,16 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           await audit(client, tenantId, user.id, "application.state.changed", "application", applicationId, {
             previous_desired_state: current.rows[0].desired_state,
             desired_state: desiredState,
+            cancelled_deployments: cancelledDeploymentCount,
             runtime_enabled: false
           });
-          return { status: 200, body: { application: updated.rows[0], runtime_enabled: false } };
+          if (cancelledDeploymentCount) {
+            await audit(client, tenantId, user.id, "application.deployments.cancelled", "application", applicationId, {
+              count: cancelledDeploymentCount,
+              reason: desiredState
+            });
+          }
+          return { status: 200, body: { application: updated.rows[0], cancelled_deployments: cancelledDeploymentCount, runtime_enabled: false } };
         }
 
         if (resource === "deployments" && route[3] && route[6] === "state" && request.method === "POST") {
