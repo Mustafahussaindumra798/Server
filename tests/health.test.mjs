@@ -21,7 +21,8 @@ const readySchema = {
   node_resource_metrics: true,
   heartbeat_function: true,
   claim_jobs_function: true,
-  acknowledge_job_function: true
+  acknowledge_job_function: true,
+  capability_heartbeat_function: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -50,6 +51,14 @@ test("health identifies migration 007 without exposing database details", async 
     schema: "partial",
     pending_migrations: ["007_resource_admission"]
   });
+});
+
+test("health identifies migration 008 when runtime capability heartbeats are not installed", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, capability_heartbeat_function: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["008_runtime_capability_heartbeat"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
