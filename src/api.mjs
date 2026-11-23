@@ -298,7 +298,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token, { cache: request.method === "GET" });
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)))?$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})(?:\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)|(state)))?)?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -500,6 +500,66 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
             await audit(client, tenantId, user.id, "node.job.created", "job", created.rows[0].id, { node_id: nodeId, type, placement: requestedNodeId ? "pinned" : "least_outstanding_jobs" });
           }
           return { status, body: { job: created.rows[0] } };
+        }
+
+        if (resource === "applications" && route[3] && route[6] === "state" && request.method === "POST") {
+          requirePermission(role, "manageApplications");
+          const body = await readJson(request);
+          const desiredState = body.desired_state;
+          if (!["running", "stopped", "suspended"].includes(desiredState)) {
+            const error = new Error("desired_state must be running, stopped or suspended.");
+            error.status = 400;
+            throw error;
+          }
+          const applicationId = requireUuid(route[3], "application_id");
+          const current = await client.query(
+            "SELECT id, desired_state FROM applications WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [applicationId, tenantId]
+          );
+          if (!current.rows[0]) { const error = new Error("Application not found."); error.status = 404; throw error; }
+          const updated = await client.query(
+            "UPDATE applications SET desired_state = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, name, desired_state, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
+            [applicationId, tenantId, desiredState]
+          );
+          await audit(client, tenantId, user.id, "application.state.changed", "application", applicationId, {
+            previous_desired_state: current.rows[0].desired_state,
+            desired_state: desiredState,
+            runtime_enabled: false
+          });
+          return { status: 200, body: { application: updated.rows[0], runtime_enabled: false } };
+        }
+
+        if (resource === "deployments" && route[3] && route[6] === "state" && request.method === "POST") {
+          requirePermission(role, "operateDeployments");
+          const body = await readJson(request);
+          if (body.desired_state !== "stopped") {
+            const error = new Error("An existing revision can only be cancelled. Create a new deployment revision to request running state.");
+            error.status = 400;
+            throw error;
+          }
+          const deploymentId = requireUuid(route[3], "deployment_id");
+          const current = await client.query(
+            "SELECT id, desired_state, status FROM deployments WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [deploymentId, tenantId]
+          );
+          if (!current.rows[0]) { const error = new Error("Deployment not found."); error.status = 404; throw error; }
+          if (current.rows[0].desired_state === "stopped" && current.rows[0].status === "cancelled") {
+            return { status: 200, body: { deployment: current.rows[0], runtime_enabled: false } };
+          }
+          if (!["queued", "scheduled"].includes(current.rows[0].status)) {
+            const error = new Error("This revision has progressed beyond the cancellable queue. A node runtime is required to stop an active workload safely.");
+            error.status = 409;
+            throw error;
+          }
+          const updated = await client.query(
+            "UPDATE deployments SET desired_state = 'stopped', status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
+            [deploymentId, tenantId]
+          );
+          await audit(client, tenantId, user.id, "deployment.cancelled", "deployment", deploymentId, {
+            previous_status: current.rows[0].status,
+            desired_state: "stopped"
+          });
+          return { status: 200, body: { deployment: updated.rows[0], runtime_enabled: false } };
         }
 
         if (resource === "applications" && request.method === "GET") {
