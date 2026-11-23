@@ -44,7 +44,7 @@ export function createHealthHandler(databasePool) {
       `);
       const schema = result.rows[0] || {};
       const baseReady = schema.applications_table && schema.deployments_table && schema.nodes_table &&
-        schema.node_resource_metrics && schema.heartbeat_function && schema.capability_heartbeat_function && schema.claim_jobs_function &&
+        schema.node_resource_metrics && schema.heartbeat_function && schema.claim_jobs_function &&
         schema.acknowledge_job_function;
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
