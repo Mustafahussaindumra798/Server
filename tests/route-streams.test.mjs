@@ -70,3 +70,20 @@ test("gateway rejects a node close that arrives before route_opened", async () =
   await assert.rejects(pending, /before it opened/);
   assert.equal(manager.activeStreams, 0);
 });
+
+test("gateway sends stream-scoped pause and resume frames to the owning node", async () => {
+  const manager = createRouteStreamManager();
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  assert.equal(manager.hasNode(nodeId), true);
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  const stream = await pending;
+  stream.pause();
+  stream.resume();
+  assert.deepEqual(socket.frames.slice(-2).map((frame) => frame.type), ["route_pause", "route_resume"]);
+  stream.close();
+  manager.detachNode(nodeId);
+  assert.equal(manager.hasNode(nodeId), false);
+});
