@@ -1,4 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { resolveTxt as dnsResolveTxt } from "node:dns/promises";
+import { isIP } from "node:net";
+import { domainToASCII } from "node:url";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { createSupabaseAuthVerifier } from "./auth/supabase.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
@@ -141,11 +144,33 @@ function validateResourceRequests(value) {
   return result;
 }
 
+function normalizeHostname(value) {
+  const input = requireText(value, "hostname", 253).trim();
+  if (/[\s\/:@?#\\]/.test(input) || input.includes("*")) {
+    const error = new Error("hostname must be a DNS hostname without a scheme, path, wildcard or port.");
+    error.status = 400;
+    throw error;
+  }
+  const ascii = domainToASCII(input.replace(/\.$/, "")).toLowerCase();
+  if (!ascii || ascii.length > 253 || ascii === "localhost" || isIP(ascii) ||
+      !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(ascii)) {
+    const error = new Error("hostname must be a valid public DNS hostname.");
+    error.status = 400;
+    throw error;
+  }
+  return ascii;
+}
+
+function makeDomainChallenge() {
+  const token = randomBytes(32).toString("base64url");
+  return { token, tokenHash: createHash("sha256").update(token, "utf8").digest("hex") };
+}
+
 function nodeCredential(request) {
   return String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1] || null;
 }
 
-export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, logger = console }) {
+export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, resolveTxtFn = dnsResolveTxt, logger = console }) {
   let verifyAccessToken;
   try {
     const supabaseApiKey = env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY;
@@ -336,6 +361,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token, { cache: request.method === "GET" });
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
+        const domainRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/domains(?:\/([0-9a-f-]{36})(?:\/(challenge|verify))?)?$/i);
         const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})(?:\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)|(state)))?)?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
@@ -354,14 +380,14 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           return { status: 200, body: { tenants: tenants.rows } };
         }
 
-        if (!route || !UUID.test(route[1])) {
+        if ((!route && !domainRoute) || !UUID.test((route || domainRoute)[1])) {
           const error = new Error("API route not found.");
           error.status = 404;
           throw error;
         }
 
-        const tenantId = route[1];
-        const resource = route[2];
+        const tenantId = (route || domainRoute)[1];
+        const resource = domainRoute ? "domains" : route[2];
         const role = await getMembership(client, tenantId, user.id);
 
         if (resource === "overview" && request.method === "GET") {
