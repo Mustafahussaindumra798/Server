@@ -750,19 +750,19 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id
                       AND deployment.desired_state = 'running'
-                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $2
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy','stopping','restarting')), 0)) >= $2
                 AND ((node.resource_metrics_json->>'memory_available_bytes')::bigint -
                   COALESCE((SELECT sum((deployment.resource_requests_json->>'memory_bytes')::bigint)
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id
                       AND deployment.desired_state = 'running'
-                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $3
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy','stopping','restarting')), 0)) >= $3
                 AND ((node.resource_metrics_json->>'disk_available_bytes')::bigint -
                   COALESCE((SELECT sum((deployment.resource_requests_json->>'disk_bytes')::bigint)
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id
                       AND deployment.desired_state = 'running'
-                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $4
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy','stopping','restarting')), 0)) >= $4
                 AND ($5::uuid IS NULL OR node.id = $5)
               ORDER BY
                 ((CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
@@ -770,7 +770,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                   COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id AND deployment.desired_state = 'running'
-                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) ASC,
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy','stopping','restarting')), 0)) ASC,
                 node.id ASC
               FOR UPDATE OF node SKIP LOCKED
               LIMIT 1
