@@ -21,7 +21,7 @@ function validateDeploymentPayload(payload) {
       !Number.isSafeInteger(resources.memory_bytes) || resources.memory_bytes < MIN_MEMORY_BYTES || resources.memory_bytes > MAX_MEMORY_BYTES) {
     throw new Error("Deployment CPU and memory requests are invalid or outside supported bounds.");
   }
-  const healthCheckPath = payload.health_check_path == null ? "/" : payload.health_check_path;
+  if (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !/^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/.test(healthCheckPath) || healthCheckPath.startsWith("//") || healthCheckPath.split("/").includes("..")) throw new Error("Health-check path must be a safe absolute path of at most 256 characters.");
   if (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !/^\\/[A-Za-z0-9._~!if (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !healthCheckPath.startsWith("/") || healthCheckPath.startsWith("//") || /[\\r\\n\\0]/.test(healthCheckPath)) throw new Error("Health-check path must be a safe absolute path of at most 256 characters.");'()*+,;=:@%\\/-]*$/.test(healthCheckPath) || healthCheckPath.startsWith("//") || healthCheckPath.split("/").includes("..")) throw new Error("Health-check path must be a safe absolute path of at most 256 characters.");
   if (!Number.isInteger(healthCheckTimeout) || healthCheckTimeout < 5 || healthCheckTimeout > 120) throw new Error("Health-check timeout must be an integer from 5 to 120 seconds.");
   return { ...payload, health_check_path: healthCheckPath, health_check_timeout_seconds: healthCheckTimeout, container_name: "cloudexify-" + payload.deployment_id.toLowerCase() };
