@@ -49,6 +49,7 @@ export function createNodeTunnelServer({
     let handshakeStarted = false;
     let rechecking = false;
     let sequence = 0;
+    let lastPongSequence = 0;
     let buffer = "";
     let lastPongAt = Date.now();
     let pingTimer;
@@ -119,7 +120,9 @@ export function createNodeTunnelServer({
           handshakeStarted = true;
           clearTimeout(handshakeTimer);
           void start();
-        } else if (message.type === "pong" && Number.isSafeInteger(message.sequence) && message.sequence <= sequence) {
+        } else if (message.type === "pong" && Number.isSafeInteger(message.sequence) &&
+                   message.sequence > lastPongSequence && message.sequence <= sequence) {
+          lastPongSequence = message.sequence;
           lastPongAt = Date.now();
         } else {
           rejectPeer();
