@@ -2,6 +2,17 @@
 
 **Status:** Control-plane job creation, credential-authenticated polling, leases, acknowledgements and retry reconciliation are implemented. A packaged node agent and workload execution adapters are not included.
 
+## Application lifecycle reconciliation
+
+`POST /api/v1/tenants/:tenantId/applications/:applicationId/state` accepts `running`, `stopped` or `suspended` desired state for Owner/Admin roles.
+
+- Application state changes lock the application row first, matching the deployment-creation lock order.
+- A stop or suspend request locks the application's deployment revisions and cancels only `queued` / `scheduled` revisions.
+- If any revision is already `deploying` or `healthy`, the API returns HTTP 409 and changes nothing. A node runtime is required to stop an active workload safely.
+- Cancellation and application state changes share the user transaction; a failure rolls back both.
+- Audit events record the requested state and the number of cancelled revisions.
+- This is control-plane intent and queue reconciliation only. It does not claim that a process was started or stopped; runtime execution remains disabled.
+
 ## Safety boundary
 
 The first protocol version enables only two non-mutating job types:
