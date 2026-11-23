@@ -160,8 +160,9 @@
 - [x] Add internal deployment-to-domain route registry with tenant-bound composite references, verified-domain and healthy/fresh endpoint checks, approved Linux node checks, lifecycle suspension/recovery, audit events and PostgreSQL integration coverage (migration 016); routes remain pending transport and cannot be activated
 - [x] Implement outbound TLS 1.3/mTLS control tunnel with per-node certificate CN identity, SHA-256 fingerprint registry, database-backed revocation and node/tenant freshness checks (migration 017); reconnect backoff, private ALPN and gateway heartbeat rechecks implemented; forwarding remains disabled
 - [x] Implement Ed25519 signed route-grant primitives and node-authenticated control-plane authorization endpoint; grants bind route/version, tenant, verified hostname, deployment, exact node and DB-observed loopback port with a 30-second expiry
-- [ ] Wire node-side grant verification and one-time replay tracking into tunnel-open handling
-- [ ] Implement restricted multiplexed loopback-only forwarder with bounded streams, backpressure and disconnect cleanup
+- [x] Wire node-side Ed25519 grant verification and one-time replay tracking into tunnel `route_open` handling; reject wrong-node, expired, malformed and replayed grants
+- [x] Implement node-side loopback-only stream forwarder with signed-port binding, 32-stream cap, bounded data frames, idle timeout and disconnect cleanup
+- [ ] Implement gateway stream scheduler, multiplexed response handling, end-to-end backpressure and public reverse-proxy routing
 - [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
