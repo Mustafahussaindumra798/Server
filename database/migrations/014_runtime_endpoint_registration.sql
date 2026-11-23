@@ -177,7 +177,7 @@ BEGIN
     IF v_job.type NOT IN ('deploy','restart') THEN
       RETURN NEW;
     END IF;
-    IF jsonb_object_length(NEW.result_json) <> 2
+    IF NEW.result_json - 'local_port' - 'container_name' <> '{}'::jsonb
        OR NOT (NEW.result_json ?& ARRAY['local_port','container_name'])
        OR jsonb_typeof(NEW.result_json->'local_port') <> 'number'
        OR jsonb_typeof(NEW.result_json->'container_name') <> 'string'
