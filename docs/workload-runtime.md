@@ -21,6 +21,7 @@ The adapter accepts only these fields:
 - `health_check_timeout_seconds`: total bounded health-check window, 5–120 seconds, default 30
 - `resources.cpu_millicores`: 50–64000
 - `resources.memory_bytes`: 16 MiB–1 TiB
+- `resources.disk_bytes`: 16 MiB–1 TiB; enforced as the Podman overlay writable-layer size limit
 
 Unknown fields, tags, mutable image references, arbitrary commands, environment injection, host mounts and privileged settings are rejected. A valid digest is not sufficient by itself: the image must also pass Cosign verification against the node's locally provisioned trust key.
 
@@ -34,7 +35,8 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 - A deterministic container name and Cloudexify ownership/deployment labels
 - A dedicated rootless `slirp4netns` network
 - Inbound TCP published only on node loopback with a dynamically assigned host port
-- CPU and memory limits plus a 128-process limit
+- CPU, memory and Podman overlay writable-layer disk limits (`--storage-opt=size=...`) plus a 128-process limit
+- Deployment placement requires the node's Podman overlay driver and explicit `CLOUDEXIFY_STORAGE_QUOTA_READY=true` operator attestation; this flag must only be set after project-quota support is provisioned and verified on the backing filesystem. Podman itself remains the final enforcement point and deployment fails closed if the storage option cannot be applied.
 - Read-only root filesystem and a bounded, no-exec temporary filesystem
 - All Linux capabilities dropped, no-new-privileges, and a non-root container UID
 - No host filesystem mounts or host networking
@@ -49,6 +51,7 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 - Application stop/suspend cancels queued revisions and queues stop jobs for active revisions in the same tenant-scoped transaction.
 - A workload job received by a node without rootless Podman/cgroup-v2 qualification is terminally rejected rather than retried indefinitely.
 - A process running is not equivalent to an application passing its health check; only the explicit successful HTTP probe result can transition a deployment to `healthy`.
+- The requested disk quota is passed through the deployment job and applied to the container writable overlay layer. Root filesystem remains read-only and `/tmp` is bounded. Persistent application volumes and user-managed durable storage are not implemented; the disk quota is not a persistent-volume feature.
 
 ## Release blockers before customer workloads
 
@@ -58,7 +61,7 @@ This adapter is a tested execution primitive, not yet a complete public deployme
 2. Periodic runtime drift detection and recovery for workloads that fail after a successful restart reconciliation.
 3. Automatic rollback to the previous healthy revision after terminal failure.
 4. Reverse-proxy ingress, TLS, host routing and safe port lifecycle.
-5. Per-container disk quota or a documented enforced storage boundary.
+5. Persistent per-application volumes, storage lifecycle, backup and restore; the ephemeral writable-layer quota is implemented but does not provide durable volumes.
 6. Structured workload logs, metrics, cleanup and upgrade/recovery procedures.
 7. Provision and rotate the Cosign trust public key on every eligible node through a trusted node-administration process.
 8. Debian 12 x86_64 and ARM64 qualification on real hosts.
