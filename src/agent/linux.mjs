@@ -86,9 +86,15 @@ export async function detectCosignVerifier({
 }
 
 export async function getCapabilities(identity = getLinuxIdentity(), { podmanProbe = detectPodmanRuntime, cosignProbe = detectCosignVerifier } = {}) {
-  const podman = identity.platform === "linux"
+  const podmanResult = identity.platform === "linux"
     ? await podmanProbe()
     : { available: false, ready: false, reason: "platform_not_qualified" };
+  const podman = {
+    ...podmanResult,
+    storage_quota: podmanResult.storage_quota || {
+      available: false, ready: false, enforcement: null, reason: "storage_quota_not_detected"
+    }
+  };
   const cosign = identity.platform === "linux"
     ? await cosignProbe()
     : { available: false, ready: false, trust_key_configured: false, reason: "platform_not_qualified" };
