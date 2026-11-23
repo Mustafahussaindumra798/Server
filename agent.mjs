@@ -124,7 +124,7 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
   });
 }
 
-export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log } = {}) {
+export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log, runtimeProbe = detectPodmanRuntime } = {}) {
   getLinuxIdentity();
   if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 3 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 3 and 300 seconds.");
   if (!Number.isInteger(pollSeconds) || pollSeconds < 3 || pollSeconds > 120) throw new Error("Poll interval must be between 3 and 120 seconds.");
@@ -133,7 +133,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
   let nextHeartbeat = 0;
   let nextPoll = 0;
   let lastCpuMetrics = null;
-  const workloadRuntime = new PodmanWorkloadRuntime({ runtimeProbe: identity.platform === "linux" ? detectPodmanRuntime : async () => ({ ready: false, rootless: false, cgroup_version: null, cgroup_v2_available: false }) });
+  const workloadRuntime = new PodmanWorkloadRuntime({ runtimeProbe: identity.platform === "linux" ? runtimeProbe : async () => ({ ready: false, rootless: false, cgroup_version: null, cgroup_v2_available: false }) });
   onLog("info", "Linux/Android node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
 
   while (!signal?.aborted) {
