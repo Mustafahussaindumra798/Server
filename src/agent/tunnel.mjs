@@ -161,7 +161,8 @@ export function startNodeTunnel({
   if (!signal) throw new Error("Tunnel AbortSignal is required.");
   const controller = new AbortController();
   const abort = () => controller.abort();
-  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) controller.abort();
+  else signal.addEventListener("abort", abort, { once: true });
   const runSignal = controller.signal;
 
   const done = (async () => {
