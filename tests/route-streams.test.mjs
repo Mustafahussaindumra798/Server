@@ -59,3 +59,14 @@ test("gateway fails pending streams when node disconnects and enforces per-node 
   await assert.rejects(pending, /disconnected/);
   assert.equal(manager.activeStreams, 0);
 });
+
+test("gateway rejects a node close that arrives before route_opened", async () => {
+  const manager = createRouteStreamManager();
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  assert.equal(manager.handleNodeMessage(nodeId, { type: "route_close", stream_id: id, reason: "upstream_closed" }), true);
+  await assert.rejects(pending, /before it opened/);
+  assert.equal(manager.activeStreams, 0);
+});
