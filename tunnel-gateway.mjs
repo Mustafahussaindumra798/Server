@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { lstatSync, readFileSync } from "node:fs";
+import https from "node:https";
+import { X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { createDatabasePool } from "./src/db/pool.mjs";
 import { createNodeTunnelServer, createTunnelCertificateAuthorizer } from "./src/ingress/mtls-tunnel.mjs";
 import { createRouteStreamManager } from "./src/ingress/route-streams.mjs";
+import { createRouteGrantSigner } from "./src/ingress/route-grants.mjs";
+import { createIngressRequestHandler } from "./src/ingress/http-proxy.mjs";
 
 function required(name) {
   const value = process.env[name];
@@ -71,10 +75,60 @@ async function main() {
     listen_port: port,
     protocol: "mTLS/TLS1.3",
     route_streams_enabled: true,
-    public_ingress_enabled: false
+    public_ingress_enabled: process.env.CLOUDEXIFY_PUBLIC_INGRESS_ENABLED === "true"
   }) + "\n");
 
+  let ingressServer = null;
+  if (process.env.CLOUDEXIFY_PUBLIC_INGRESS_ENABLED === "true") {
+    const ingressPort = Number(process.env.CLOUDEXIFY_INGRESS_LISTEN_PORT || 443);
+    const ingressHost = process.env.CLOUDEXIFY_INGRESS_LISTEN_HOST || "0.0.0.0";
+    if (!Number.isInteger(ingressPort) || ingressPort < 1 || ingressPort > 65535) {
+      throw new Error("CLOUDEXIFY_INGRESS_LISTEN_PORT must be between 1 and 65535.");
+    }
+    const ingressCertificate = readTlsFile("CLOUDEXIFY_INGRESS_TLS_CERT");
+    const ingressKey = readTlsFile("CLOUDEXIFY_INGRESS_TLS_KEY", { privateKey: true });
+    const parsedCertificate = new X509Certificate(ingressCertificate);
+    const now = Date.now();
+    if (Date.parse(parsedCertificate.validFrom) > now || Date.parse(parsedCertificate.validTo) <= now) {
+      throw new Error("Ingress TLS certificate is not currently valid.");
+    }
+    const privateGrantKey = required("CLOUDEXIFY_ROUTE_GRANT_PRIVATE_KEY");
+    const signRouteGrant = createRouteGrantSigner(privateGrantKey);
+    const handler = createIngressRequestHandler({
+      pool,
+      routeStreams,
+      signRouteGrant,
+      certificate: parsedCertificate,
+      logger: (event, fields) => process.stderr.write(JSON.stringify({
+        timestamp: new Date().toISOString(), level: "warn", event, ...fields
+      }) + "\\n")
+    });
+    ingressServer = https.createServer({
+      key: ingressKey,
+      cert: ingressCertificate,
+      minVersion: "TLSv1.3",
+      maxHeaderSize: 16 * 1024,
+      requestTimeout: 60000,
+      headersTimeout: 10000,
+      keepAliveTimeout: 5000
+    }, (request, response) => { void handler(request, response); });
+    ingressServer.maxConnections = 1000;
+    await new Promise((resolve, reject) => {
+      ingressServer.once("error", reject);
+      ingressServer.listen(ingressPort, ingressHost, resolve);
+    });
+    process.stdout.write(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: "public_https_ingress_started",
+      listen_host: ingressHost,
+      listen_port: ingressPort,
+      protocol: "HTTPS/TLS1.3",
+      hostname_routes: "active_routes_only"
+    }) + "\\n");
+  }
+
   const shutdown = () => {
+    ingressServer?.close();
     routeStreams.closeAll();
     server.close(() => { void pool.end().finally(() => process.exit(0)); });
     setTimeout(() => process.exit(1), 10000).unref();
