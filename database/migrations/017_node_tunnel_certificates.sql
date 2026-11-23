@@ -94,6 +94,9 @@ CREATE TRIGGER node_tunnel_certificate_audit_revoke
   AFTER UPDATE OF revoked_at ON public.node_tunnel_certificates
   FOR EACH ROW EXECUTE FUNCTION app_private.audit_node_tunnel_certificate_change();
 
+REVOKE ALL ON FUNCTION app_private.guard_node_tunnel_certificate_mutation() FROM PUBLIC;
+REVOKE ALL ON FUNCTION app_private.audit_node_tunnel_certificate_change() FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION app_private.authorize_node_tunnel_certificate(
   p_fingerprint_sha256 text,
   p_node_id uuid
