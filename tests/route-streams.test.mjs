@@ -83,7 +83,11 @@ test("gateway sends stream-scoped pause and resume frames to the owning node", a
   stream.pause();
   stream.resume();
   assert.deepEqual(socket.frames.slice(-2).map((frame) => frame.type), ["route_pause", "route_resume"]);
+  let staleDrainCallbackCalled = false;
+  stream.onDrain(() => { staleDrainCallbackCalled = true; });
   stream.close();
+  socket.emit("drain");
+  assert.equal(staleDrainCallbackCalled, false);
   manager.detachNode(nodeId);
   assert.equal(manager.hasNode(nodeId), false);
 });
