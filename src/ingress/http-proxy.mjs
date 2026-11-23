@@ -53,6 +53,9 @@ class TunnelDuplex extends Duplex {
   attach(route) {
     this.route = route;
     this.connecting = false;
+    if (this.upstreamPaused) {
+      try { this.route.pause(); } catch (error) { this.destroy(error); }
+    }
   }
   refreshTimeout() {
     clearTimeout(this.timeoutTimer);
