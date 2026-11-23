@@ -6,7 +6,7 @@ The first runtime adapter uses rootless Podman on qualified Linux nodes only. An
 
 ## Deployment request and control-plane orchestration
 
-The authenticated deployment API now requires an immutable OCI digest and a TCP container port for running revisions. It inserts the deployment revision and its typed `deploy` job in the same tenant-scoped database transaction. Generic user-created jobs remain diagnostic-only. Migration 009 adds artifact metadata and database triggers that move deployment revisions to `deploying` when the node accepts/starts the job, to `failed` after terminal failure/rejection, and cancel queued deploy jobs when a revision is cancelled.
+The authenticated deployment API now requires an immutable OCI digest and a TCP container port for running revisions. It inserts the deployment revision and its typed `deploy` job in the same tenant-scoped database transaction. Generic user-created jobs remain diagnostic-only. Migration 009 adds artifact metadata and deployment-job reconciliation; migration 010 adds health-check configuration and requires a verified `workload_healthy` result before marking a revision healthy; migration 011 adds stop/restart lifecycle states and job reconciliation.
 
 A successful container-start acknowledgement deliberately leaves the revision in `deploying`. The node then probes the configured HTTP path over its loopback-only port mapping. Only a 2xx response produces the `workload_healthy` result code; the database marks the revision `healthy` only when it sees that exact result code. A succeeded job without verified health is marked failed.
 
@@ -44,8 +44,9 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 - Deploy verifies the image signature, pulls the immutable image, creates the container, verifies Podman's running state, and polls the configured HTTP health endpoint on `127.0.0.1` until a 2xx response or timeout.
 - Each health request has a 2.5-second abort timeout; the total health window is bounded by the deployment's 5–120-second setting.
 - If the endpoint never returns 2xx, the agent best-effort stops and removes the unhealthy container, then reports job failure. The control plane retries failed jobs under the existing bounded attempt policy and marks the deployment failed after terminal failure.
-- Stop checks the resulting state and is idempotent for an absent or stopped container.
-- Restart requires an existing container and verifies that it is running afterward.
+- Stop is queued through the authenticated deployment-state API; the revision remains `stopping` until the node confirms `workload_stopped` or `workload_already_stopped`, then transitions to `stopped`.
+- Restart is available for a stopped revision, reuses its saved health-check policy, and returns to `healthy` only after a 2xx HTTP response. Failed or rejected lifecycle jobs become terminal `failed` after the bounded retry policy.
+- Application stop/suspend cancels queued revisions and queues stop jobs for active revisions in the same tenant-scoped transaction.
 - A workload job received by a node without rootless Podman/cgroup-v2 qualification is terminally rejected rather than retried indefinitely.
 - A process running is not equivalent to an application passing its health check; only the explicit successful HTTP probe result can transition a deployment to `healthy`.
 
@@ -53,7 +54,7 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 
 This adapter is a tested execution primitive, not yet a complete public deployment path. Do not set `workload_execution: true` or mark a deployment `healthy` until all of the following are implemented and tested:
 
-1. Control-plane job creation/authorization and deployment-to-job state transitions (implemented; migration 009).
+1. Control-plane job creation/authorization and deployment-to-job state transitions (implemented; migrations 009–011).
 2. Durable runtime reconciliation after node restart and expired job leases.
 3. Automatic rollback to the previous healthy revision after terminal failure.
 4. Reverse-proxy ingress, TLS, host routing and safe port lifecycle.
