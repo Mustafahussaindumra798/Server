@@ -174,7 +174,11 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
           } catch (error) {
             if (error instanceof AgentAuthenticationError) throw error;
             try {
-              await acknowledge(fetchImpl, state, job, "failed", { result_code: "diagnostic_failed", result_summary: String(error.message).slice(0, 1000) });
+              const runtimeUnavailable = ["deploy", "stop", "restart"].includes(job.job_type) && /not qualified|not configured/i.test(error.message);
+              await acknowledge(fetchImpl, state, job, runtimeUnavailable ? "rejected" : "failed", {
+                result_code: runtimeUnavailable ? "runtime_not_qualified" : "job_execution_failed",
+                result_summary: String(error.message).slice(0, 1000)
+              });
             } catch (ackError) {
               onLog("warn", "Could not submit diagnostic failure result", { node_id: state.node_id, job_id: job.job_id, error: ackError.message });
             }
