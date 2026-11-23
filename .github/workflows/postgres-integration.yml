@@ -93,6 +93,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/runtime-capabilities.integration.sql
       - name: Verify fair job distribution
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/job-scheduling.integration.sql
+      - name: Verify concurrent node job claims
+        run: bash tests/postgres/concurrent-job-claim.integration.sh
       - name: Verify resource admission and reservations
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/resource-admission.integration.sql
       - name: Verify deployment job orchestration
