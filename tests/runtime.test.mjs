@@ -50,6 +50,8 @@ test("deployment starts with bounded, isolated Podman arguments and confirms run
   }
   assert.ok(runArgs.includes("127.0.0.1::8080/tcp"));
   assert.equal(runArgs.some((arg) => arg.includes("sh -c") || arg.startsWith("--volume")), false);
+  const signatureCheck = calls.find((args) => args[0] === "verify");
+  assert.deepEqual(signatureCheck, ["verify", "--key", "/etc/cloudexify/trust.pub", digest]);
 });
 
 test("stop confirms process termination and is idempotent", async () => {
@@ -90,4 +92,20 @@ test("restart verifies the container is running after Podman restart", async () 
   };
   const runtime = new PodmanWorkloadRuntime({ runCommand, runtimeProbe: qualified });
   assert.equal((await runtime.restart(deploymentId)).result_code, "workload_restarted");
+});
+
+test("deployment refuses unsigned images before Podman pulls or runs them", async () => {
+  const calls = [];
+  const runtime = new PodmanWorkloadRuntime({
+    runtimeProbe: qualified,
+    runCommand: async (binary, args) => {
+      calls.push([binary, args]);
+      if (binary === "cosign") { const error = new Error("no matching signatures"); error.stderr = "no matching signatures"; throw error; }
+      throw new Error("Podman must not run for an unsigned image");
+    }
+  });
+  await assert.rejects(runtime.deploy(payload), /OCI image signature verification failed/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "cosign");
+  assert.deepEqual(calls[0][1], ["verify", "--key", "/etc/cloudexify/trust.pub", digest]);
 });
