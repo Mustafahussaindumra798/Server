@@ -59,7 +59,7 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
     pool,
     routeStreams,
     signRouteGrant: (value) => { assert.equal(value.route_id, route.route_id); return { token: "signed-route-grant" }; },
-    certificate: { checkHost: (host) => host === "app.example.test" }
+    certificate: { checkHost: () => certificateMatches }
   });
   const server = http.createServer((req, res) => { void handler(req, res); });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -92,6 +92,7 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
 test("ingress returns 404, 421 and 503 without opening a tunnel", async (t) => {
   let lookupRows = [];
   let connected = true;
+  let certificateMatches = false;
   let opened = 0;
   const handler = createIngressRequestHandler({
     pool: { async query() { return { rows: lookupRows }; } },
@@ -109,7 +110,8 @@ test("ingress returns 404, 421 and 503 without opening a tunnel", async (t) => {
     });
     req.once("error", reject);
   });
-  assert.equal(await call("bad.example.test"), 421);
+  assert.equal(await call("app.example.test"), 421);
+  certificateMatches = true;
   assert.equal(await call("missing.example.test"), 404);
   lookupRows = [route];
   connected = false;
