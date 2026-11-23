@@ -63,6 +63,8 @@ export function createHealthHandler(databasePool) {
               AND column_name = 'health_checked_at'
           ) AS deployment_health_checked_at,
           COALESCE(position('workload_healthy' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_health_reconciliation,
+          COALESCE(position('workload_stopped' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_stop_reconciliation,
+          COALESCE(position('restarting' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_restart_reconciliation,
           EXISTS (
             SELECT 1 FROM pg_trigger
             WHERE tgrelid = to_regclass('public.jobs')
@@ -88,8 +90,9 @@ export function createHealthHandler(databasePool) {
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
       const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation && schema.deployment_job_cancellation;
       const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at && schema.deployment_health_reconciliation;
+      const deploymentLifecycleReady = schema.deployment_stop_reconciliation && schema.deployment_restart_reconciliation;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -100,7 +103,8 @@ export function createHealthHandler(databasePool) {
             ...(!resourceAdmissionReady ? ["007_resource_admission"] : []),
             ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : []),
             ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : []),
-            ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : [])
+            ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : []),
+            ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : [])
           ]
         }));
         return;
@@ -115,7 +119,8 @@ export function createHealthHandler(databasePool) {
         resource_admission: "ready",
         runtime_capabilities: "ready",
         deployment_job_orchestration: "ready",
-        deployment_health_checks: "ready"
+        deployment_health_checks: "ready",
+        deployment_lifecycle_jobs: "ready"
       }));
     } catch {
       response.statusCode = 503;
