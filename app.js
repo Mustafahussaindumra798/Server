@@ -203,9 +203,15 @@ function applicationRows(apps, canManage) {
 function deploymentRows(items, canOperate) {
   return items.map((item) => {
     const canCancel = canOperate && item.desired_state === "running" && ["queued", "scheduled"].includes(item.status);
+    const canStop = canOperate && item.desired_state === "running" && ["deploying", "healthy", "restarting", "failed"].includes(item.status);
+    const canRestart = canOperate && item.desired_state === "stopped" && item.status === "stopped";
     const action = canCancel
       ? '<button type="button" class="small-action" data-deployment-cancel="' + escapeHtml(item.id) + '">Cancel queued</button>'
-      : "";
+      : canStop
+        ? '<button type="button" class="small-action" data-deployment-action="stopped" data-deployment-id="' + escapeHtml(item.id) + '">Stop</button>'
+        : canRestart
+          ? '<button type="button" class="small-action" data-deployment-action="running" data-deployment-id="' + escapeHtml(item.id) + '">Restart</button>'
+          : "";
     const health = item.status === "healthy"
       ? '<small class="subcell">HTTP 2xx verified · ' + escapeHtml(formatDate(item.health_checked_at)) + '</small>'
       : item.desired_state === "running" ? '<small class="subcell">Health not verified</small>' : "";
@@ -306,7 +312,7 @@ function renderPage() {
     overview: ["Compute nodes", "Latest node heartbeat and resource reports", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes.slice(0, 8)), "No nodes registered in this workspace.")],
     nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
     applications: ["Applications", "Desired state is stored; changing it does not start a workload until a runtime is enabled.", table(["APPLICATION", "DESIRED STATE", "UPDATED / ACTION"], applicationRows(applications, ["owner", "admin"].includes(currentRole)), "No applications registered in this workspace.")],
-    deployments: ["Deployments", "A revision is healthy only after its configured HTTP endpoint returns a 2xx response. Public ingress is not enabled yet.", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED / ACTION"], deploymentRows(deployments, ["owner", "admin", "operator"].includes(currentRole)), "No deployments recorded in this workspace.")],
+    deployments: ["Deployments", "Stop or restart a revision on its assigned node. A revision becomes healthy only after its HTTP endpoint returns 2xx.", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED / ACTION"], deploymentRows(deployments, ["owner", "admin", "operator"].includes(currentRole)), "No deployments recorded in this workspace.")],
     jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")],
     members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")],
     settings: ["Session and workspace settings", "Authentication, session continuity and service configuration", '<div class="settings-grid"><article class="settings-card"><span>AUTHENTICATION</span><h3>Supabase Auth</h3><p>Browser session persistence with automatic token refresh and stale-token recovery.</p><b class="setting-state">Automatic refresh enabled</b></article><article class="settings-card"><span>ACCESS TOKEN</span><h3>' + escapeHtml(state.session?.expires_at ? formatDate(new Date(Number(state.session.expires_at) * 1000)) : "Not available") + '</h3><p>Current access-token expiry. The browser refreshes it before expiry; this is not the overall session end time.</p></article><article class="settings-card"><span>WORKSPACE</span><h3>' + escapeHtml(state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "No workspace") + '</h3><p>Current role: ' + escapeHtml(currentRole || "Unknown") + '</p></article><article class="settings-card"><span>DATA REFRESH</span><h3>Every 3 seconds</h3><p>Single combined snapshot while this dashboard is active, with bounded retry backoff after network failures.</p></article><article class="settings-card"><span>API PROTECTION</span><h3>600 requests / minute</h3><p>Vercel edge rate limit per source IP for the authenticated control-plane API.</p></article><article class="settings-card"><span>WORKLOAD RUNTIME</span><h3>Not enabled yet</h3><p>Applications and deployment revisions can be registered, but workload execution, isolation and rollback are a later milestone.</p></article></div>']
@@ -327,6 +333,25 @@ function renderPage() {
         await refreshData({ force: true });
       } catch (error) {
         dashboardMessage(error.message || "Unable to update application state.", true);
+        button.disabled = false;
+      }
+    });
+  });
+  $("#table-content").querySelectorAll("[data-deployment-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const id = button.dataset.deploymentId;
+        const desiredState = button.dataset.deploymentAction;
+        const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments/" + encodeURIComponent(id) + "/state", {
+          method: "POST", body: JSON.stringify({ desired_state: desiredState })
+        });
+        dashboardMessage(desiredState === "stopped"
+          ? (result.runtime_job_queued ? "Stop job queued. The revision will be marked stopped only after the node confirms it." : "Deployment is already stopped.")
+          : (result.runtime_job_queued ? "Restart job queued. The revision will be marked healthy only after its HTTP health check passes." : "Deployment is already healthy."));
+        await refreshData({ force: true });
+      } catch (error) {
+        dashboardMessage(error.message || "Unable to change deployment state.", true);
         button.disabled = false;
       }
     });
