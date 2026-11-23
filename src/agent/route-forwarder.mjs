@@ -99,7 +99,9 @@ export function createRouteForwarder({
         const part = chunk.subarray(offset, offset + MAX_DATA_BYTES);
         try {
           const writable = send(tunnelSocket, { type: "route_data", stream_id: id, data: part.toString("base64") });
-          if (!writable) local.pause();
+          if (!writable) {
+            for (const active of streams.values()) active.local.pause();
+          }
         } catch { closeStream(id, "tunnel_write_failed", false); return; }
       }
     });
