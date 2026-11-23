@@ -148,8 +148,49 @@ BEGIN
     IF v_job.type NOT IN ('deploy','restart')
        OR jsonb_object_length(NEW.result_json) <> 2
        OR NOT (NEW.result_json ?& ARRAY['local_port','container_name'])
+       OR NEW.result_json->>'container_name' IS NULL
        OR NEW.result_json->>'container_name' <> ('cloudexify-' || v_job.deployment_id::text)
-       OR (NEW.result_json->>'local_port') !~ '^[0-9]{1,5}$' THEN
+       OR NEW.result_json->>'local_port' IS NULL
+       OR (NEW.result_json->>'local_port') !~ '^[0-9]{1,5}
+      RETURN NEW;
+    END IF;
+    v_local_port := (NEW.result_json->>'local_port')::integer;
+    IF v_local_port NOT BETWEEN 1 AND 65535 THEN RETURN NEW; END IF;
+
+    UPDATE public.deployments
+       SET runtime_local_port = v_local_port,
+           runtime_observed_at = NEW.finished_at,
+           updated_at = clock_timestamp()
+     WHERE id = v_job.deployment_id
+       AND tenant_id = v_job.tenant_id
+       AND target_node_id = v_job.node_id
+       AND desired_state = 'running';
+  ELSE
+    IF v_job.type <> 'stop' THEN RETURN NEW; END IF;
+    UPDATE public.deployments
+       SET runtime_local_port = NULL,
+           runtime_observed_at = NEW.finished_at,
+           updated_at = clock_timestamp()
+     WHERE id = v_job.deployment_id
+       AND tenant_id = v_job.tenant_id
+       AND target_node_id = v_job.node_id;
+  END IF;
+
+  RETURN NEW;
+END
+$endpoint$;
+
+DROP TRIGGER IF EXISTS job_attempts_record_deployment_endpoint ON public.job_attempts;
+CREATE TRIGGER job_attempts_record_deployment_endpoint
+AFTER UPDATE OF finished_at, result_code, result_json ON public.job_attempts
+FOR EACH ROW
+WHEN (NEW.finished_at IS NOT NULL AND OLD.finished_at IS NULL)
+EXECUTE FUNCTION app_private.record_deployment_runtime_endpoint();
+
+REVOKE ALL ON FUNCTION app_private.record_deployment_runtime_endpoint() FROM PUBLIC;
+
+COMMIT;
+ THEN
       RETURN NEW;
     END IF;
     v_local_port := (NEW.result_json->>'local_port')::integer;
