@@ -47,6 +47,48 @@ BEGIN
 
   INSERT INTO public.deployments (
     tenant_id,application_id,revision,target_node_id,desired_state,status,
+    image_digest,container_port,resource_requests_json,health_check_path,health_check_timeout_seconds
+  ) VALUES (
+    v_tenant,v_app,3,v_node,'running','scheduled',v_digest,8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}','/healthz',45
+  ) RETURNING id INTO v_deployment;
+  INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key)
+  VALUES (v_tenant,v_node,v_deployment,'deploy','{}'::jsonb,
+    'deployment:' || v_deployment::text || ':deploy')
+  RETURNING id INTO v_job;
+  INSERT INTO public.job_attempts (job_id,node_id,result_code,result_summary,started_at,finished_at)
+  VALUES (v_job,v_node,'workload_healthy','HTTP health check passed',clock_timestamp(),clock_timestamp());
+  UPDATE public.jobs SET status='succeeded' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'healthy' THEN
+    RAISE EXCEPTION 'Deployment did not become healthy after a successful HTTP health check result';
+  END IF;
+  IF (SELECT health_checked_at FROM public.deployments WHERE id=v_deployment) IS NULL THEN
+    RAISE EXCEPTION 'Deployment health verification timestamp was not recorded';
+  END IF;
+  IF (SELECT health_check_path FROM public.deployments WHERE id=v_deployment) <> '/healthz' THEN
+    RAISE EXCEPTION 'Deployment health-check path was not persisted';
+  END IF;
+
+  INSERT INTO public.deployments (
+    tenant_id,application_id,revision,target_node_id,desired_state,status,
+    image_digest,container_port,resource_requests_json
+  ) VALUES (
+    v_tenant,v_app,4,v_node,'running','scheduled',v_digest,8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}'
+  ) RETURNING id INTO v_deployment;
+  INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key)
+  VALUES (v_tenant,v_node,v_deployment,'deploy','{}'::jsonb,
+    'deployment:' || v_deployment::text || ':deploy')
+  RETURNING id INTO v_job;
+  INSERT INTO public.job_attempts (job_id,node_id,result_code,result_summary,started_at,finished_at)
+  VALUES (v_job,v_node,'workload_process_running','Container started but health was not verified',clock_timestamp(),clock_timestamp());
+  UPDATE public.jobs SET status='succeeded' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'failed' THEN
+    RAISE EXCEPTION 'A successful job without a verified health result was incorrectly marked healthy';
+  END IF;
+
+  INSERT INTO public.deployments (
+    tenant_id,application_id,revision,target_node_id,desired_state,status,
     image_digest,container_port,resource_requests_json
   ) VALUES (
     v_tenant,v_app,2,v_node,'running','scheduled',v_digest,8080,
