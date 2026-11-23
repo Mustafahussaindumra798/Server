@@ -214,9 +214,31 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (!["healthy", "degraded"].includes(body.health_status)) { const error = new Error("health_status must be healthy or degraded."); error.status = 400; throw error; }
         const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
         const resources = body.resources == null ? {} : body.resources;
-        const allowed = new Set(["cpu_percent","memory_total_bytes","memory_used_bytes","disk_total_bytes","disk_available_bytes","load_1m","uptime_seconds","battery_percent","temperature_c","cpu_cores"]);
-        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 10 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100) || (key === "cpu_cores" && (value < 1 || value > 256 || !Number.isInteger(value))))) {
-          const error = new Error("resources must contain only supported finite numeric metrics within their allowed ranges (8 KiB maximum)."); error.status = 400; throw error;
+        const allowed = new Set([
+          "cpu_percent","cpu_cores","cpu_frequency_mhz","load_1m","uptime_seconds",
+          "memory_total_bytes","memory_used_bytes","memory_available_bytes",
+          "disk_total_bytes","disk_used_bytes","disk_available_bytes",
+          "android_shared_storage_total_bytes","android_shared_storage_used_bytes","android_shared_storage_available_bytes",
+          "battery_percent","temperature_c"
+        ]);
+        const entries = resources && typeof resources === "object" && !Array.isArray(resources) ? Object.entries(resources) : [];
+        const invalid = !resources || Array.isArray(resources) || typeof resources !== "object" ||
+          Buffer.byteLength(JSON.stringify(resources), "utf8") > 16384 || entries.length > 20 ||
+          entries.some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 ||
+            ((key === "cpu_percent" || key === "battery_percent") && value > 100) ||
+            (key === "cpu_cores" && (value < 1 || value > 256 || !Number.isInteger(value))) ||
+            (key === "cpu_frequency_mhz" && value > 10000) ||
+            (key === "temperature_c" && value > 150));
+        const consistent = (totalKey, usedKey, availableKey) => {
+          const total = resources?.[totalKey], used = resources?.[usedKey], available = resources?.[availableKey];
+          return (total == null || used == null || used <= total) &&
+            (total == null || available == null || available <= total) &&
+            (used == null || available == null || used + available <= total);
+        };
+        if (invalid || !consistent("memory_total_bytes","memory_used_bytes","memory_available_bytes") ||
+            !consistent("disk_total_bytes","disk_used_bytes","disk_available_bytes") ||
+            !consistent("android_shared_storage_total_bytes","android_shared_storage_used_bytes","android_shared_storage_available_bytes")) {
+          const error = new Error("resources must contain only supported finite numeric metrics with consistent capacity values (16 KiB maximum)."); error.status = 400; throw error;
         }
         const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
         const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources });
@@ -541,7 +563,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                 AND node.approved_at IS NOT NULL
                 AND node.status IN ('online', 'degraded')
                 AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
-                AND node.resource_metrics_json ?& ARRAY['cpu_cores','cpu_percent','memory_total_bytes','memory_used_bytes','disk_available_bytes']
+                AND node.resource_metrics_json ?& ARRAY['cpu_cores','cpu_percent','memory_total_bytes','memory_available_bytes','disk_available_bytes']
                 AND CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
                   THEN (node.resource_metrics_json->>'cpu_cores')::integer BETWEEN 1 AND 256 ELSE false END
                 AND (node.resource_metrics_json->>'cpu_percent')::numeric < 85
@@ -552,8 +574,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                     WHERE deployment.target_node_id = node.id
                       AND deployment.desired_state = 'running'
                       AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $2
-                AND ((node.resource_metrics_json->>'memory_total_bytes')::bigint -
-                     (node.resource_metrics_json->>'memory_used_bytes')::bigint -
+                AND ((node.resource_metrics_json->>'memory_available_bytes')::bigint -
                   COALESCE((SELECT sum((deployment.resource_requests_json->>'memory_bytes')::bigint)
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id
