@@ -235,7 +235,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
     }
     if (request.method === "OPTIONS") {
       response.writeHead(204, {
-        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
         "access-control-allow-headers": "Authorization, Content-Type, X-Request-ID",
         "access-control-max-age": "600",
         "vary": "Origin"
@@ -245,7 +245,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
     }
 
     try {
-      if (!["GET", "POST"].includes(request.method || "")) {
+      if (!["GET", "POST", "DELETE"].includes(request.method || "")) {
         const error = new Error("Method not allowed.");
         error.status = 405;
         throw error;
