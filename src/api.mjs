@@ -7,6 +7,56 @@ import { createSupabaseAuthVerifier } from "./auth/supabase.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
 import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withNodeRouteAuthorization, withNodeRuntimeReconciliation, withUserTransaction } from "./db/pool.mjs";
 import { createRouteGrantSigner } from "./ingress/route-grants.mjs";
+import { redactSensitive } from "./logger.mjs";
+
+export class SlidingWindowRateLimiter {
+  constructor({ maxRequests = 120, windowMs = 60_000, cleanupIntervalMs = 300_000 } = {}) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+    this.windows = new Map();
+    this.timer = setInterval(() => this.cleanup(), cleanupIntervalMs);
+    if (this.timer && this.timer.unref) this.timer.unref();
+  }
+
+  check(key, now = Date.now()) {
+    const windowStart = now - this.windowMs;
+    let timestamps = this.windows.get(key);
+    if (!timestamps) {
+      timestamps = [];
+      this.windows.set(key, timestamps);
+    }
+    while (timestamps.length > 0 && timestamps[0] <= windowStart) {
+      timestamps.shift();
+    }
+    const currentCount = timestamps.length;
+    const remaining = Math.max(0, this.maxRequests - currentCount - 1);
+    const resetTime = Math.ceil(((timestamps[0] ?? now) + this.windowMs) / 1000);
+
+    if (currentCount >= this.maxRequests) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((timestamps[0] + this.windowMs - now) / 1000));
+      return { allowed: false, remaining: 0, limit: this.maxRequests, reset: resetTime, retryAfter: retryAfterSeconds };
+    }
+
+    timestamps.push(now);
+    return { allowed: true, remaining, limit: this.maxRequests, reset: resetTime, retryAfter: 0 };
+  }
+
+  cleanup(now = Date.now()) {
+    const windowStart = now - this.windowMs;
+    for (const [key, timestamps] of this.windows.entries()) {
+      while (timestamps.length > 0 && timestamps[0] <= windowStart) {
+        timestamps.shift();
+      }
+      if (timestamps.length === 0) {
+        this.windows.delete(key);
+      }
+    }
+  }
+
+  destroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -201,7 +251,21 @@ function nodeCredential(request) {
   return String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1] || null;
 }
 
-export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, resolveTxtFn = dnsResolveTxt, logger = console }) {
+export function createApiHandler({
+  pool,
+  env = process.env,
+  fetchImpl = fetch,
+  resolveTxtFn = dnsResolveTxt,
+  logger = console,
+  userRateLimiter = new SlidingWindowRateLimiter({
+    maxRequests: env.API_USER_RATE_LIMIT_MAX ? Number(env.API_USER_RATE_LIMIT_MAX) : 120,
+    windowMs: env.API_USER_RATE_LIMIT_WINDOW_MS ? Number(env.API_USER_RATE_LIMIT_WINDOW_MS) : 60_000
+  }),
+  ipRateLimiter = new SlidingWindowRateLimiter({
+    maxRequests: env.API_IP_RATE_LIMIT_MAX ? Number(env.API_IP_RATE_LIMIT_MAX) : 600,
+    windowMs: env.API_IP_RATE_LIMIT_WINDOW_MS ? Number(env.API_IP_RATE_LIMIT_WINDOW_MS) : 60_000
+  })
+} = {}) {
   let verifyAccessToken;
   try {
     const supabaseApiKey = env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY;
@@ -241,6 +305,25 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         "vary": "Origin"
       });
       response.end();
+      return true;
+    }
+
+    const clientIp = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim() || request.socket?.remoteAddress || "127.0.0.1";
+    const ipRateCheck = ipRateLimiter.check(clientIp);
+    if (!ipRateCheck.allowed) {
+      send(response, 429, {
+        error: {
+          code: "IP_RATE_LIMITED",
+          message: "Too many requests from this IP address. Please slow down.",
+          request_id: requestId,
+          retry_after: ipRateCheck.retryAfter
+        }
+      }, requestId, {
+        "retry-after": String(ipRateCheck.retryAfter),
+        "x-ratelimit-limit": String(ipRateCheck.limit),
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": String(ipRateCheck.reset)
+      });
       return true;
     }
 
@@ -412,6 +495,17 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
       }
       const token = getBearerToken(request);
       const principal = await verifyAccessToken(token, { cache: request.method === "GET" });
+      const userRateCheck = userRateLimiter.check(principal.identitySubject);
+      response.setHeader("x-ratelimit-limit", String(userRateCheck.limit));
+      response.setHeader("x-ratelimit-remaining", String(userRateCheck.remaining));
+      response.setHeader("x-ratelimit-reset", String(userRateCheck.reset));
+      if (!userRateCheck.allowed) {
+        const error = new Error("User rate limit exceeded. Please wait before retrying.");
+        error.status = 429;
+        error.code = "RATE_LIMITED";
+        error.retryAfter = userRateCheck.retryAfter;
+        throw error;
+      }
       const result = await withUserTransaction(pool, principal.identitySubject, async (client, user) => {
         const domainRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/domains(?:\/([0-9a-f-]{36})(?:\/(challenge|verify))?)?$/i);
         const volumeRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/volumes(?:\/([0-9a-f-]{36})(?:\/(backups|attach|detach))?)?$/i);
@@ -1287,7 +1381,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
       send(response, result.status, result.body, requestId);
     } catch (error) {
       const status = Number.isInteger(error.status) ? error.status : 500;
-      if (status >= 500) logger.error?.("API request failed", { request_id: requestId, error: error.message });
+      if (status >= 500) logger.error?.("API request failed", redactSensitive({ request_id: requestId, error: error.message }));
       const code = status === 401 ? "UNAUTHENTICATED" :
         status === 403 ? (error.code || "FORBIDDEN") :
         status === 404 ? "NOT_FOUND" :
@@ -1295,10 +1389,15 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         status === 409 ? "CONFLICT" :
         status === 413 ? "PAYLOAD_TOO_LARGE" :
         status === 415 ? "UNSUPPORTED_MEDIA_TYPE" :
+        status === 429 ? (error.code || "RATE_LIMITED") :
         status === 400 ? "BAD_REQUEST" :
         status === 503 ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR";
       const message = status >= 500 ? (status === 503 ? error.message : "The request could not be completed.") : error.message;
-      send(response, status, { error: { code, message, request_id: requestId } }, requestId);
+      const extraHeaders = {};
+      if (status === 429 && error.retryAfter) {
+        extraHeaders["retry-after"] = String(error.retryAfter);
+      }
+      send(response, status, { error: { code, message, request_id: requestId } }, requestId, extraHeaders);
     }
     return true;
   };

@@ -46,7 +46,7 @@
 - [x] Verify live dashboard node status using a real enrolled Android node (online heartbeat confirmed by user)
 - [ ] Verify resource metric values are rendered correctly in the dashboard
 - [x] Vercel edge API rate limit: 600 requests per 60 seconds per source IP on `/api/v1/`
-- [ ] Per-user application-level rate limits and dedicated login abuse monitoring
+- [x] Per-user application-level rate limits and dedicated login abuse monitoring
 - [ ] Monitoring, secrets management and security review
 - [ ] Confirm Supabase Auth JWT/session policy; client-side refresh cannot extend the configured JWT lifetime
 
@@ -200,7 +200,7 @@
 - [x] Node-side signed-grant loopback forwarding and gateway multiplexed route-stream transport implemented; public request ingress remains disabled
 - [x] Opt-in HTTPS hostname routing, TLS termination and reverse proxy implementation (public listener disabled by default; manual certificate only)
 - [ ] Production DNS/TLS rollout, multi-node service discovery/failover and public ingress qualification
-- [ ] Logs, metrics, alerts, backups and recovery drills
+- [x] Structured logs, metrics, alert thresholds and operational health endpoints (docs/operations/alerts.md, src/logger.mjs, /api/health?detail=full)
 - [ ] Upgrade strategy and credential rotation
 
 ## Release gates

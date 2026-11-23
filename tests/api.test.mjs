@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { createApiHandler } from "../src/api.mjs";
+import { createApiHandler, SlidingWindowRateLimiter } from "../src/api.mjs";
+import { createStructuredLogger, redactSensitive } from "../src/logger.mjs";
 
 const issuer = "https://identity.example.test/";
 const audience = "cloudexify-control-plane";
@@ -111,7 +112,9 @@ async function startApi(role = "viewer", options = {}) {
     env: { OIDC_ISSUER: issuer, OIDC_AUDIENCE: audience, OIDC_JWKS_URI: "https://identity.example.test/jwks" },
     fetchImpl: async () => ({ ok: true, json: async () => ({ keys: [jwk] }) }),
     resolveTxtFn: options.resolveTxtFn || (async () => []),
-    logger: { error() {} }
+    logger: options.logger || { error() {} },
+    userRateLimiter: options.userRateLimiter,
+    ipRateLimiter: options.ipRateLimiter
   });
   const server = http.createServer((req, res) => { void handler(req, res); });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -987,4 +990,68 @@ test("tenant member can query deployment lifecycle events", async (t) => {
   const payload = await res.json();
   assert.equal(Array.isArray(payload.events), true);
   assert.equal(payload.events.length, 1);
+});
+
+test("authenticated user exceeding rate limit receives 429 and rate limit headers", async (t) => {
+  const userRateLimiter = new SlidingWindowRateLimiter({ maxRequests: 2, windowMs: 60_000 });
+  const api = await startApi("viewer", { userRateLimiter });
+  t.after(() => { userRateLimiter.destroy(); return api.close(); });
+
+  const headers = { authorization: "Bearer " + makeToken() };
+  const endpoint = api.origin + "/api/v1/tenants/" + tenantId + "/applications";
+
+  const res1 = await fetch(endpoint, { headers });
+  assert.equal(res1.status, 200);
+  assert.equal(res1.headers.get("x-ratelimit-limit"), "2");
+  assert.equal(res1.headers.get("x-ratelimit-remaining"), "1");
+
+  const res2 = await fetch(endpoint, { headers });
+  assert.equal(res2.status, 200);
+  assert.equal(res2.headers.get("x-ratelimit-remaining"), "0");
+
+  const res3 = await fetch(endpoint, { headers });
+  assert.equal(res3.status, 429);
+  assert.equal(res3.headers.get("x-ratelimit-remaining"), "0");
+  assert.ok(Number(res3.headers.get("retry-after")) >= 1);
+  const payload = await res3.json();
+  assert.equal(payload.error.code, "RATE_LIMITED");
+});
+
+test("client IP exceeding request threshold is rejected with 429", async (t) => {
+  const ipRateLimiter = new SlidingWindowRateLimiter({ maxRequests: 1, windowMs: 60_000 });
+  const api = await startApi("viewer", { ipRateLimiter });
+  t.after(() => { ipRateLimiter.destroy(); return api.close(); });
+
+  const endpoint = api.origin + "/api/v1/tenants";
+  const res1 = await fetch(endpoint);
+  assert.equal(res1.status, 401); // First request reached auth
+
+  const res2 = await fetch(endpoint);
+  assert.equal(res2.status, 429); // Second request blocked by IP rate limiter
+  const payload = await res2.json();
+  assert.equal(payload.error.code, "IP_RATE_LIMITED");
+});
+
+test("structured logger redacts sensitive credentials and tokens in log output", async () => {
+  const logEntries = [];
+  const logger = createStructuredLogger({
+    minLevel: "debug",
+    sink: (json) => logEntries.push(JSON.parse(json))
+  });
+
+  logger.info("Node enrolled successfully", {
+    token: "plain-secret-token",
+    enrollment_token: "single-use-token",
+    authorization: "Bearer secret-credential-0123456789",
+    node_id: "30000000-0000-4000-8000-000000000001"
+  });
+
+  assert.equal(logEntries.length, 1);
+  const entry = logEntries[0];
+  assert.equal(entry.level, "INFO");
+  assert.equal(entry.message, "Node enrolled successfully");
+  assert.equal(entry.node_id, "30000000-0000-4000-8000-000000000001");
+  assert.equal(entry.token, "[REDACTED]");
+  assert.equal(entry.enrollment_token, "[REDACTED]");
+  assert.equal(entry.authorization, "[REDACTED]");
 });

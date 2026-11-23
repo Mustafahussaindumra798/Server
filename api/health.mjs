@@ -154,8 +154,57 @@ export function createHealthHandler(databasePool) {
         return;
       }
 
+      const url = new URL(_request?.url || "/", "http://localhost");
+      const includeDetails = url.searchParams.get("detail") === "full" || url.searchParams.get("operational") === "true";
+
+      let operationalMetrics;
+      if (includeDetails) {
+        try {
+          const metricsResult = await databasePool.query(`
+            SELECT
+              COALESCE((SELECT count(*)::integer FROM jobs WHERE status = 'queued'), 0) AS queued_jobs,
+              COALESCE((SELECT count(*)::integer FROM jobs WHERE status IN ('leased', 'accepted', 'running')), 0) AS active_jobs,
+              COALESCE((SELECT count(*)::integer FROM jobs WHERE status = 'failed'), 0) AS failed_jobs,
+              COALESCE((SELECT count(*)::integer FROM jobs WHERE status IN ('leased', 'running') AND lease_expires_at < clock_timestamp()), 0) AS stale_leased_jobs,
+              COALESCE((SELECT count(*)::integer FROM deployments WHERE status = 'healthy'), 0) AS healthy_deployments,
+              COALESCE((SELECT count(*)::integer FROM deployments WHERE status = 'failed'), 0) AS failed_deployments,
+              COALESCE((SELECT count(*)::integer FROM deployments WHERE status IN ('queued', 'scheduled', 'deploying', 'restarting')), 0) AS active_deployments,
+              COALESCE((SELECT count(*)::integer FROM nodes WHERE status = 'online' AND last_seen_at > clock_timestamp() - make_interval(secs => heartbeat_interval_seconds * 3)), 0) AS online_nodes,
+              COALESCE((SELECT count(*)::integer FROM nodes WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at <= clock_timestamp() - make_interval(secs => heartbeat_interval_seconds * 3))), 0) AS offline_nodes,
+              COALESCE((SELECT count(*)::integer FROM nodes WHERE ingress_draining = true), 0) AS draining_nodes,
+              COALESCE((SELECT count(*)::integer FROM application_volumes), 0) AS total_volumes,
+              COALESCE((SELECT count(*)::integer FROM volume_backups WHERE status = 'completed'), 0) AS completed_backups
+          `);
+          const row = metricsResult.rows[0] || {};
+          operationalMetrics = {
+            job_queue: {
+              queued: row.queued_jobs ?? 0,
+              active: row.active_jobs ?? 0,
+              failed: row.failed_jobs ?? 0,
+              stale_leases: row.stale_leased_jobs ?? 0
+            },
+            deployments: {
+              healthy: row.healthy_deployments ?? 0,
+              active: row.active_deployments ?? 0,
+              failed: row.failed_deployments ?? 0
+            },
+            nodes: {
+              online: row.online_nodes ?? 0,
+              offline: row.offline_nodes ?? 0,
+              draining: row.draining_nodes ?? 0
+            },
+            storage: {
+              total_volumes: row.total_volumes ?? 0,
+              completed_backups: row.completed_backups ?? 0
+            }
+          };
+        } catch {
+          // If metrics tables or columns are not yet present, fail-safe
+        }
+      }
+
       response.statusCode = 200;
-      response.end(JSON.stringify({
+      const responsePayload = {
         status: "ok",
         service: "cloudexify-control-plane",
         database: "connected",
@@ -170,8 +219,10 @@ export function createHealthHandler(databasePool) {
         runtime_endpoint_registration: "ready",
         domain_claims: "ready",
         deployment_domain_route_registry: "pending_transport_only",
-        node_tunnel_authorization: "mTLS_certificate_registry_ready_forwarding_disabled"
-      }));
+        node_tunnel_authorization: "mTLS_certificate_registry_ready_forwarding_disabled",
+        ...(operationalMetrics ? { operational_metrics: operationalMetrics } : {})
+      };
+      response.end(JSON.stringify(responsePayload));
     } catch {
       response.statusCode = 503;
       response.end(JSON.stringify({ status: "degraded", service: "cloudexify-control-plane", database: "unavailable" }));

@@ -183,3 +183,43 @@ test("health reports missing database configuration", async () => {
   assert.equal(res.statusCode, 503);
   assert.equal(JSON.parse(res.body).status, "not_configured");
 });
+
+test("health includes operational metrics when detail=full is requested", async () => {
+  const pool = {
+    async query(sql) {
+      if (String(sql).includes("information_schema") || String(sql).includes("to_regclass")) {
+        return { rows: [readySchema] };
+      }
+      if (String(sql).includes("queued_jobs")) {
+        return {
+          rows: [{
+            queued_jobs: 3,
+            active_jobs: 5,
+            failed_jobs: 1,
+            stale_leased_jobs: 0,
+            healthy_deployments: 4,
+            failed_deployments: 0,
+            active_deployments: 2,
+            online_nodes: 2,
+            offline_nodes: 0,
+            draining_nodes: 1,
+            total_volumes: 6,
+            completed_backups: 12
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+  const res = response();
+  await createHealthHandler(pool)({ url: "/api/health?detail=full" }, res);
+  assert.equal(res.statusCode, 200);
+  const payload = JSON.parse(res.body);
+  assert.equal(payload.status, "ok");
+  assert.deepEqual(payload.operational_metrics, {
+    job_queue: { queued: 3, active: 5, failed: 1, stale_leases: 0 },
+    deployments: { healthy: 4, active: 2, failed: 0 },
+    nodes: { online: 2, offline: 0, draining: 1 },
+    storage: { total_volumes: 6, completed_backups: 12 }
+  });
+});
