@@ -754,3 +754,42 @@ test("domain verification does not accept a mismatched DNS TXT record", async (t
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.verify_domain_claim")), false);
 });
 
+
+test("domain verification reports missing DNS records without consuming the challenge", async (t) => {
+  const api = await startApi("owner", {
+    domainClaim: { id: "71000000-0000-4000-8000-000000000031", hostname: "app.example.test", status: "pending_verification" },
+    domainChallenge: { id: "72000000-0000-4000-8000-000000000031", token_hash: createHash("sha256").update("a".repeat(43)).digest("hex"), record_name: "_cloudexify-verify.app.example.test", expires_at: new Date(Date.now() + 600000).toISOString() },
+    resolveTxtFn: async () => { const error = new Error("no TXT record"); error.code = "ENODATA"; throw error; }
+  }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/verify", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken() }, body: ""
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { verified: false, reason: "dns_record_not_found", hostname: "app.example.test" });
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.verify_domain_claim")), false);
+});
+
+test("domain verification returns service unavailable when DNS resolution fails", async (t) => {
+  const api = await startApi("owner", {
+    domainClaim: { id: "71000000-0000-4000-8000-000000000031", hostname: "app.example.test", status: "pending_verification" },
+    domainChallenge: { id: "72000000-0000-4000-8000-000000000031", token_hash: createHash("sha256").update("a".repeat(43)).digest("hex"), record_name: "_cloudexify-verify.app.example.test", expires_at: new Date(Date.now() + 600000).toISOString() },
+    resolveTxtFn: async () => { throw new Error("resolver offline"); }
+  }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/verify", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken() }, body: ""
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.message, "DNS TXT lookup is temporarily unavailable.");
+});
+
+test("expired domain challenge can be replaced but active challenge cannot be duplicated", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/challenge", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" }, body: "{}"
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  assert.equal(payload.verification.record_name, "_cloudexify-verify.app.example.test");
+  assert.match(payload.verification.record_value, /^cloudexify-verification=[A-Za-z0-9_-]{43}$/);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.revoke_expired_domain_challenges")), true);
+});
