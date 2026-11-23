@@ -376,6 +376,17 @@ test("owner can drain and resume an ingress-qualified node with audit events", a
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.ingress.resumed"), true);
 });
 
+test("node ingress state API rejects unsupported states without database mutation", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/30000000-0000-4000-8000-000000000001/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ ingress_state: "paused" })
+  });
+  assert.equal(response.status, 400);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET ingress_draining")), false);
+});
+
 test("node ingress cannot be resumed on an unqualified platform", async (t) => {
   const api = await startApi("owner", { ingressNode: {
     id: "30000000-0000-4000-8000-000000000001",
