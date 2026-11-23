@@ -9,7 +9,7 @@ const MAX_MEMORY_BYTES = 1024 * 1024 * 1024 * 1024;
 
 function validateDeploymentPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Deployment payload must be an object.");
-  const allowed = ["deployment_id", "image", "container_port", "resources"];
+  const allowed = ["deployment_id", "image", "container_port", "resources", "health_check_path", "health_check_timeout_seconds"];
   if (Object.keys(payload).some((key) => !allowed.includes(key))) throw new Error("Deployment payload contains unsupported fields.");
   if (!UUID.test(payload.deployment_id || "")) throw new Error("Deployment ID is invalid.");
   if (typeof payload.image !== "string" || !IMAGE_DIGEST.test(payload.image)) throw new Error("Deployment image must be a fully qualified, immutable OCI SHA-256 digest.");
@@ -21,16 +21,22 @@ function validateDeploymentPayload(payload) {
       !Number.isSafeInteger(resources.memory_bytes) || resources.memory_bytes < MIN_MEMORY_BYTES || resources.memory_bytes > MAX_MEMORY_BYTES) {
     throw new Error("Deployment CPU and memory requests are invalid or outside supported bounds.");
   }
-  return { ...payload, container_name: "cloudexify-" + payload.deployment_id.toLowerCase() };
+  const healthCheckPath = payload.health_check_path == null ? "/" : payload.health_check_path;
+  const healthCheckTimeout = payload.health_check_timeout_seconds == null ? 30 : payload.health_check_timeout_seconds;
+  if (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !healthCheckPath.startsWith("/") || healthCheckPath.startsWith("//") || /[\\r\\n\\0]/.test(healthCheckPath)) throw new Error("Health-check path must be a safe absolute path of at most 256 characters.");
+  if (!Number.isInteger(healthCheckTimeout) || healthCheckTimeout < 5 || healthCheckTimeout > 120) throw new Error("Health-check timeout must be an integer from 5 to 120 seconds.");
+  return { ...payload, health_check_path: healthCheckPath, health_check_timeout_seconds: healthCheckTimeout, container_name: "cloudexify-" + payload.deployment_id.toLowerCase() };
 }
 
 export class PodmanWorkloadRuntime {
-  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000, cosignBinary = "cosign", trustKeyPath = "/etc/cloudexify/trust.pub" } = {}) {
+  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000, cosignBinary = "cosign", trustKeyPath = "/etc/cloudexify/trust.pub", fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
     this.runCommand = runCommand;
     this.runtimeProbe = runtimeProbe;
     this.timeoutMs = timeoutMs;
     this.cosignBinary = cosignBinary;
     this.trustKeyPath = trustKeyPath;
+    this.fetchImpl = fetchImpl;
+    this.sleep = sleep;
   }
 
   async verifyImage(image) {
@@ -71,6 +77,35 @@ export class PodmanWorkloadRuntime {
     return value[0];
   }
 
+  async waitForHealth(localPort, payload) {
+    if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+      throw new Error("Container has no valid loopback health-check port mapping.");
+    }
+    const url = "http://127.0.0.1:" + localPort + payload.health_check_path;
+    const deadline = Date.now() + payload.health_check_timeout_seconds * 1000;
+    let lastError = "health endpoint did not return HTTP 2xx";
+    while (Date.now() < deadline) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await this.fetchImpl(url, { method: "GET", redirect: "error", signal: controller.signal, headers: { accept: "application/json, text/plain, */*" } });
+        if (response.status >= 200 && response.status < 300) return { checked_at: new Date().toISOString(), status_code: response.status };
+        lastError = "health endpoint returned HTTP " + response.status;
+      } catch (error) {
+        lastError = String(error?.message || "health request failed").replace(/[\\r\\n]+/g, " ").slice(0, 240);
+      } finally {
+        clearTimeout(timer);
+      }
+      await this.sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
+    }
+    throw new Error("Application health check failed after " + payload.health_check_timeout_seconds + " seconds: " + lastError);
+  }
+
+  async removeUnhealthyContainer(containerName) {
+    try { await this.command(["stop", "--time", "5", containerName], 10000); } catch { /* best-effort cleanup */ }
+    try { await this.command(["rm", "--force", containerName], 15000); } catch { /* best-effort cleanup */ }
+  }
+
   async deploy(rawPayload) {
     const payload = validateDeploymentPayload(rawPayload);
     await this.assertReady();
@@ -78,8 +113,16 @@ export class PodmanWorkloadRuntime {
       if (/no such object|not found/i.test(error.message)) return null;
       throw error;
     });
+    let inspection = existing;
     if (existing?.State?.Running) {
-      return { result_code: "workload_already_running", result_summary: "Deployment container is already running.", container_name: payload.container_name, local_port: this.getHostPort(existing, payload.container_port) };
+      const localPort = this.getHostPort(existing, payload.container_port);
+      try {
+        const health = await this.waitForHealth(localPort, payload);
+        return { result_code: "workload_healthy", result_summary: "Existing deployment container passed its application health check.", container_name: payload.container_name, local_port: localPort, health };
+      } catch (error) {
+        await this.removeUnhealthyContainer(payload.container_name);
+        throw error;
+      }
     }
     if (existing) await this.command(["rm", "--force", payload.container_name]);
 
@@ -103,15 +146,23 @@ export class PodmanWorkloadRuntime {
       "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m",
       payload.image
     ];
-    await this.command(args, 120000);
-    const inspection = await this.inspect(payload.container_name);
-    if (!inspection?.State?.Running) throw new Error("Container did not enter the running state.");
-    return {
-      result_code: "workload_process_running",
-      result_summary: "Rootless OCI container started; application health has not yet been verified.",
-      container_name: payload.container_name,
-      local_port: this.getHostPort(inspection, payload.container_port)
-    };
+    try {
+      await this.command(args, 120000);
+      inspection = await this.inspect(payload.container_name);
+      if (!inspection?.State?.Running) throw new Error("Container did not enter the running state.");
+      const localPort = this.getHostPort(inspection, payload.container_port);
+      const health = await this.waitForHealth(localPort, payload);
+      return {
+        result_code: "workload_healthy",
+        result_summary: "Rootless OCI container started and passed its application HTTP health check.",
+        container_name: payload.container_name,
+        local_port: localPort,
+        health
+      };
+    } catch (error) {
+      await this.removeUnhealthyContainer(payload.container_name);
+      throw error;
+    }
   }
 
   getHostPort(inspection, containerPort) {
