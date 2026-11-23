@@ -41,10 +41,12 @@ function fakePool(role = "viewer") {
       if (query.startsWith("SELECT membership.role")) {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
+      if (query.startsWith("SELECT id, resource_requests_json FROM applications")) return { rows: [{ id: appId, resource_requests_json: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 } }], rowCount: 1 };
+      if (query.includes("memory_total_bytes") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", cpu_cores: 4, resources: { cpu_percent: 10, memory_total_bytes: 8589934592, memory_used_bytes: 1073741824, disk_available_bytes: 100000000000 } }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, name, desired_state")) return { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT COALESCE(MAX(revision)")) return { rows: [{ next_revision: 1 }], rowCount: 1 };
       if (query.startsWith("INSERT INTO deployments")) {
-        return { rows: [{ id: "50000000-0000-4000-8000-000000000001", tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: null, desired_state: "running", status: "queued", created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
+        return { rows: [{ id: "50000000-0000-4000-8000-000000000001", tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: params[3], desired_state: params[4], status: params[5], resource_requests: JSON.parse(params[6]), created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
       }
       if (query.startsWith("INSERT INTO applications")) {
         return { rows: [{ id: appId, tenant_id: tenantId, name: params[1], desired_state: "stopped", created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
