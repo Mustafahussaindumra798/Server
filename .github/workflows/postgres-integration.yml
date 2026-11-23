@@ -67,5 +67,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/job-scheduling.integration.sql
       - name: Verify resource admission and reservations
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/resource-admission.integration.sql
+      - name: Verify deployment job orchestration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/deployment-job-orchestration.integration.sql
       - name: Run application tests
         run: npm test
