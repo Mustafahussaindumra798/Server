@@ -233,26 +233,28 @@ test("Podman runtime probe requires rootless mode and cgroup v2", async () => {
       assert.equal(options.timeout, 3000);
       return { stdout: JSON.stringify({
         host: { security: { rootless: true }, cgroupVersion: "v2" },
-        store: { graphDriverName: "overlay" },
+        store: { graphDriverName: "overlay", graphRoot: "/var/lib/containers/storage" },
         version: { Version: "5.0.1" }
       }) };
     },
     readCgroupControllers: async () => "cpu memory pids",
-    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" },
+    readStorageMetrics: async () => ({ blocks: 100, bsize: 4096, bavail: 50 })
   });
   assert.deepEqual(runtime, {
     available: true, ready: true, version: "5.0.1", rootless: true,
     cgroup_version: "v2", cgroup_v2_available: true, graph_driver: "overlay",
-    storage_quota: { available: true, ready: true, enforcement: "podman-overlay-size", reason: null }, reason: null
+    storage_quota: { available: true, ready: true, enforcement: "podman-overlay-size", total_bytes: 409600, available_bytes: 204800, reason: null }, reason: null
   });
 });
 
 test("Podman storage quota capability requires overlay and explicit operator attestation", async () => {
-  const base = { host: { security: { rootless: true }, cgroupVersion: "v2" }, store: { graphDriverName: "overlay" }, version: { Version: "5.0.1" } };
+  const base = { host: { security: { rootless: true }, cgroupVersion: "v2" }, store: { graphDriverName: "overlay", graphRoot: "/var/lib/containers/storage" }, version: { Version: "5.0.1" } };
   const ready = await detectPodmanRuntime({
     runCommand: async () => ({ stdout: JSON.stringify(base) }),
     readCgroupControllers: async () => "cpu memory pids",
-    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" },
+    readStorageMetrics: async () => ({ blocks: 100, bsize: 4096, bavail: 50 })
   });
   assert.equal(ready.storage_quota.ready, true);
   const unconfigured = await detectPodmanRuntime({
@@ -264,7 +266,8 @@ test("Podman storage quota capability requires overlay and explicit operator att
   const unsupported = await detectPodmanRuntime({
     runCommand: async () => ({ stdout: JSON.stringify({ ...base, store: { graphDriverName: "vfs" } }) }),
     readCgroupControllers: async () => "cpu memory pids",
-    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" },
+    readStorageMetrics: async () => ({ blocks: 100, bsize: 4096, bavail: 50 })
   });
   assert.equal(unsupported.storage_quota.ready, false);
 });
