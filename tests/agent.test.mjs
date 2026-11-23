@@ -140,6 +140,10 @@ test("agent sends heartbeat and polls its own node queue", async (t) => {
     }
   });
   assert.ok(calls.some((call) => call.url.endsWith("/heartbeat")));
+  const heartbeatCall = calls.find((call) => call.url.endsWith("/heartbeat"));
+  const heartbeatBody = JSON.parse(heartbeatCall.options.body);
+  assert.equal(heartbeatBody.capabilities.workload_execution, false);
+  assert.deepEqual(heartbeatBody.capabilities.diagnostics, ["probe", "collect_metrics"]);
   assert.ok(calls.some((call) => call.url.endsWith("/jobs/claim")));
   for (const call of calls) assert.equal(call.options.headers.authorization, "Bearer " + validState.credential);
   assert.equal(JSON.stringify(logs).includes(validState.credential), false);
