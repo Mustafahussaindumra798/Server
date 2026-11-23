@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission and lifecycle controls are implemented. A rootless Podman execution adapter and typed agent dispatch for deploy/stop/restart jobs are implemented and CI-tested, but customer deployment remains disabled until control-plane job orchestration, artifact verification, health gates, ingress and storage quotas are complete. Both Android/Termux devices have enrolled and connected (user-confirmed). Production deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, rootless Podman execution and Cosign signature enforcement are implemented and covered by CI. Customer-facing hosting remains gated on trusted-key provisioning, application health checks, ingress/TLS, storage quotas and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migration/deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -130,7 +130,7 @@
 - [x] Reconcile deployment status from node job acknowledgements: accepted/running/succeeded remains deploying pending health; terminal failure/rejection marks failed
 - [x] Cancel queued deploy jobs when their deployment revision is cancelled
 - [x] Dashboard collects immutable image digest and container port; generic job API remains diagnostic-only
-- [x] API, health and PostgreSQL integration tests added for deployment job orchestration
+- [x] API, health and PostgreSQL integration tests added for deployment job orchestration (CI run #301 passed)
 - [ ] Add durable runtime reconciliation after node restart and expired job leases
 - [ ] Add application health checks, revision health gates and rollback policy
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
