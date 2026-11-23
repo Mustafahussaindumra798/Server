@@ -239,11 +239,18 @@ function renderNodeDetails(nodeId) {
   if (!node) return;
   const r = node.resources || {};
   const items = [
+    ["CPU cores", r.cpu_cores == null ? "Not reported" : String(r.cpu_cores) + " logical cores"],
     ["CPU usage", r.cpu_percent == null ? "Not reported" : Number(r.cpu_percent).toFixed(1) + "%"],
-    ["Memory used", r.memory_used_bytes == null ? "Not reported" : formatBytes(r.memory_used_bytes)],
-    ["Memory total", r.memory_total_bytes == null ? "Not reported" : formatBytes(r.memory_total_bytes)],
-    ["Storage available", r.disk_available_bytes == null ? "Not reported" : formatBytes(r.disk_available_bytes)],
-    ["Storage total", r.disk_total_bytes == null ? "Not reported" : formatBytes(r.disk_total_bytes)],
+    ["CPU frequency", r.cpu_frequency_mhz == null ? "Not reported" : Number(r.cpu_frequency_mhz).toFixed(0) + " MHz"],
+    ["RAM used", r.memory_used_bytes == null ? "Not reported" : formatBytes(r.memory_used_bytes)],
+    ["RAM available", r.memory_available_bytes == null ? "Not reported" : formatBytes(r.memory_available_bytes)],
+    ["RAM total", r.memory_total_bytes == null ? "Not reported" : formatBytes(r.memory_total_bytes)],
+    ["Agent filesystem used", r.disk_used_bytes == null ? "Not reported" : formatBytes(r.disk_used_bytes)],
+    ["Agent filesystem available", r.disk_available_bytes == null ? "Not reported" : formatBytes(r.disk_available_bytes)],
+    ["Agent filesystem total", r.disk_total_bytes == null ? "Not reported" : formatBytes(r.disk_total_bytes)],
+    ["Android shared storage used", r.android_shared_storage_used_bytes == null ? "Not reported" : formatBytes(r.android_shared_storage_used_bytes)],
+    ["Android shared storage available", r.android_shared_storage_available_bytes == null ? "Not reported" : formatBytes(r.android_shared_storage_available_bytes)],
+    ["Android shared storage total", r.android_shared_storage_total_bytes == null ? "Not reported" : formatBytes(r.android_shared_storage_total_bytes)],
     ["Load average", r.load_1m == null ? "Not reported" : Number(r.load_1m).toFixed(2)],
     ["Uptime", r.uptime_seconds == null ? "Not reported" : Math.floor(r.uptime_seconds / 3600) + " hours"],
     ["Battery", r.battery_percent == null ? "Not reported" : Number(r.battery_percent).toFixed(0) + "%"],
