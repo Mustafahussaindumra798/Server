@@ -562,8 +562,8 @@ test("operator can queue a stop job for an active deployment revision", async (t
   assert.equal(payload.job.status, "queued");
   const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id"));
   assert.ok(insert);
-  assert.equal(insert.params[3], deploymentId);
-  assert.deepEqual(JSON.parse(insert.params[4]), { deployment_id: deploymentId });
+  assert.equal(insert.params[2], deploymentId);
+  assert.deepEqual(JSON.parse(insert.params[3]), { deployment_id: deploymentId });
 });
 
 test("operator can restart a stopped deployment with its stored HTTP health policy", async (t) => {
