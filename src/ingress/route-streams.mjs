@@ -74,7 +74,7 @@ export function createRouteStreamManager({
       throw new Error("Authenticated node ID and tunnel socket are required.");
     }
     detachNode(nodeId, new Error("Node tunnel session replaced."));
-    nodes.set(nodeId, { socket, streamIds: new Set(), draining: false, drainResolve: null });
+    nodes.set(nodeId, { socket, streamIds: new Set(), draining: false, drainResolve: null, drainPromise: null, drainCancel: null });
   }
 
   function detachNode(nodeId, reason = new Error("Node tunnel disconnected.")) {
@@ -193,6 +193,8 @@ export function createRouteStreamManager({
         settled = true;
         clearTimeoutImpl(timer);
         if (node.drainResolve === onStreamsDrained) node.drainResolve = null;
+        node.drainCancel = null;
+        node.drainPromise = null;
         const activeStreams = node.streamIds.size;
         if (!drained && nodes.get(nodeId) === node) {
           detachNode(nodeId, new Error("Node route drain timed out."));
@@ -201,12 +203,41 @@ export function createRouteStreamManager({
       };
       onStreamsDrained = (drained = true) => finishDrain(drained);
       node.drainResolve = onStreamsDrained;
+      node.drainCancel = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeoutImpl(timer);
+        if (node.drainResolve === onStreamsDrained) node.drainResolve = null;
+        node.drainCancel = null;
+        node.drainPromise = null;
+        node.draining = false;
+        resolve({ drained: false, activeStreams: node.streamIds.size });
+      };
       timer = setTimeoutImpl(() => finishDrain(false), timeoutMs);
       timer?.unref?.();
       if (node.streamIds.size === 0) onStreamsDrained();
     });
     node.drainPromise = drainPromise;
     return drainPromise;
+  }
+
+  function resumeNode(nodeId) {
+    const node = nodes.get(nodeId);
+    if (!node) return false;
+    if (node.drainCancel) node.drainCancel();
+    node.draining = false;
+    return true;
+  }
+
+  function syncNodeDrainStates(drainingNodeIds) {
+    if (!Array.isArray(drainingNodeIds) || drainingNodeIds.some((id) => typeof id !== "string")) {
+      throw new Error("Draining node IDs must be an array of strings.");
+    }
+    const draining = new Set(drainingNodeIds);
+    for (const nodeId of nodes.keys()) {
+      if (draining.has(nodeId)) void drainNode(nodeId);
+      else resumeNode(nodeId);
+    }
   }
 
   function closeAll() {
@@ -217,10 +248,13 @@ export function createRouteStreamManager({
     attachNode,
     detachNode,
     drainNode,
+    resumeNode,
+    syncNodeDrainStates,
     openStream,
     handleNodeMessage,
     closeAll,
     hasNode(nodeId) { const node = nodes.get(nodeId); return Boolean(node && !node.socket.destroyed); },
+    get connectedNodeIds() { return [...nodes.entries()].filter(([, node]) => !node.socket.destroyed).map(([nodeId]) => nodeId); },
     get activeNodes() { return nodes.size; },
     get activeStreams() { return streams.size; }
   };
