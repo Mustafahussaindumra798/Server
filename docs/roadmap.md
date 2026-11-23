@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates with bounded failure handling are implemented and CI-verified (latest PostgreSQL integration CI run #364 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, storage quotas, durable reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates, bounded failure handling and startup runtime reconciliation are implemented (latest PostgreSQL integration CI run #364 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, storage quotas, durable reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -115,7 +115,7 @@
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
-- [ ] Apply migrations 007–011 to production DB and deploy the verified `main` build
+- [ ] Apply migrations 007–012 to production DB and deploy the verified `main` build
 - [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
@@ -137,7 +137,7 @@
 - [x] Dashboard exposes stop/restart controls and verified health timestamps
 - [x] API, agent and PostgreSQL integration tests cover deployment stop/restart lifecycle
 - [x] API, health and PostgreSQL integration tests added for deployment job orchestration (CI run #301 passed)
-- [ ] Add durable runtime reconciliation after node restart and expired job leases
+- [x] Reconcile healthy running and interrupted stopping revisions when an approved node agent restarts; preserve manifests, avoid duplicate active jobs and reject stale nodes (migration 012)
 - [x] Add configurable HTTP health-check path and timeout to deployment requests (migration 010)
 - [x] Node agent polls loopback-mapped application endpoint and requires HTTP 2xx before reporting `workload_healthy`
 - [x] Unhealthy containers are best-effort stopped/removed; failed jobs use bounded retry policy and terminal failures mark deployments failed
