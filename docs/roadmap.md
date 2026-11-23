@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates, bounded failure handling and startup runtime reconciliation are implemented (latest PostgreSQL integration CI run #379 and Linux agent CI run #52 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, persistent volumes, continuous drift reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification, HTTP health gates, automatic rollback orchestration and node-local endpoint registration are implemented in code and CI. Customer-facing hosting remains gated on trusted-key provisioning, reverse-proxy ingress/TLS, persistent volumes, continuous drift reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -147,6 +147,9 @@
 - [x] On terminal deploy failure, queue a typed restart of the previous health-verified revision on its fresh approved node (migration 013)
 - [x] Preserve the prior revision's container ID, port and health-check policy; mark the failed revision rolled_back only after the restored revision passes its own HTTP health check
 - [x] Avoid duplicate deployment rows/resource reservations; prevent recursive rollback and test no-previous-revision and rollback-failure cases
+- [x] Return Podman's dynamically assigned loopback port and deterministic container identity in a bounded node acknowledgement payload
+- [x] Persist only verified deployment-local port metadata from the active node lease; bind container identity to the deployment UUID and clear the port after confirmed stop (migration 014)
+- [x] Add PostgreSQL tests for endpoint registration, forged container identity rejection and stop cleanup
 - [ ] Verify automatic rollback on a qualified physical Linux node; public traffic switching remains blocked on reverse-proxy ingress/TLS
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
 - [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
