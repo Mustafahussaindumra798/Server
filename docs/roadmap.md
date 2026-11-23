@@ -184,9 +184,9 @@
 - [x] Read Podman GraphRoot free space and perform disk admission against the actual container-storage filesystem
 - [ ] Implement persistent application volumes, storage lifecycle and backup/restore
 - [ ] Physical-node capacity qualification and real workload execution
-- [ ] Deployment revisions, health gates, rollback and event stream
+- [x] Deployment revisions, health gates and automatic rollback orchestration
 - [x] Per-container ephemeral writable-layer disk quota (Podman overlay size limit; operator qualification required)
-- [ ] Persistent per-application volumes and backup/restore
+- [ ] Deployment lifecycle event stream for dashboard and external consumers
 
 ## Milestone 4 — Networking and operations
 - [x] Establish private outbound mTLS control transport between Linux nodes and the gateway
