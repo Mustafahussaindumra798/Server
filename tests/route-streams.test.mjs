@@ -198,3 +198,49 @@ test("gateway handles a synchronously firing injected drain timer", async () => 
   assert.equal(manager.hasNode(nodeId), false);
   assert.equal(manager.activeStreams, 0);
 });
+
+
+test("gateway can resume a node after a drain is cancelled", async () => {
+  const manager = createRouteStreamManager();
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  const stream = await pending;
+
+  const drain = manager.drainNode(nodeId, { timeoutMs: 5000 });
+  assert.equal(manager.resumeNode(nodeId), true);
+  assert.deepEqual(await drain, { drained: false, activeStreams: 1 });
+  const second = manager.openStream({ nodeId, grant: "second-grant" });
+  const secondId = socket.frames.at(-1).stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: secondId });
+  const secondStream = await second;
+  stream.close();
+  secondStream.close();
+  assert.equal(manager.hasNode(nodeId), true);
+});
+
+test("gateway synchronizes drain state for every connected node", async () => {
+  const manager = createRouteStreamManager();
+  const first = new FakeSocket();
+  const second = new FakeSocket();
+  manager.attachNode({ nodeId, socket: first });
+  const secondNodeId = "30000000-0000-4000-8000-000000000002";
+  manager.attachNode({ nodeId: secondNodeId, socket: second });
+
+  manager.syncNodeDrainStates([nodeId]);
+  await assert.rejects(manager.openStream({ nodeId, grant: "blocked" }), /draining/);
+  const opened = manager.openStream({ nodeId: secondNodeId, grant: "allowed" });
+  const streamId = second.frames[0].stream_id;
+  manager.handleNodeMessage(secondNodeId, { type: "route_opened", stream_id: streamId });
+  const stream = await opened;
+  stream.close();
+
+  manager.syncNodeDrainStates([]);
+  const resumed = manager.openStream({ nodeId, grant: "resumed" });
+  const resumedId = first.frames.at(-1).stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: resumedId });
+  (await resumed).close();
+  manager.closeAll();
+});
