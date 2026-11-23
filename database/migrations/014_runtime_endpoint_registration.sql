@@ -151,10 +151,11 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public, app_private
-AS $endpoint$
+AS $runtime_endpoint$
 DECLARE
   v_job public.jobs%ROWTYPE;
   v_local_port integer;
+  v_port_numeric numeric;
 BEGIN
   IF NEW.finished_at IS NULL OR NEW.result_code IS NULL
      OR NEW.result_code NOT IN ('workload_healthy','workload_stopped','workload_already_stopped') THEN
@@ -168,21 +169,29 @@ BEGIN
      AND job.node_id = NEW.node_id
      AND job.type IN ('deploy','restart','stop');
 
-  IF NOT FOUND THEN RETURN NEW; END IF;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
 
   IF NEW.result_code = 'workload_healthy' THEN
-    IF v_job.type NOT IN ('deploy','restart')
-       OR jsonb_object_length(NEW.result_json) <> 2
-       OR NOT (NEW.result_json ?& ARRAY['local_port','container_name'])
-       OR NEW.result_json->>'container_name' IS NULL
-       OR NEW.result_json->>'container_name' <> ('cloudexify-' || v_job.deployment_id::text)
-       OR NEW.result_json->>'local_port' IS NULL
-       OR translate(NEW.result_json->>'local_port', '0123456789', '') <> ''
-       OR length(NEW.result_json->>'local_port') NOT BETWEEN 1 AND 5 THEN
-       RETURN NEW;
+    IF v_job.type NOT IN ('deploy','restart') THEN
+      RETURN NEW;
     END IF;
-    v_local_port := (NEW.result_json->>'local_port')::integer;
-    IF v_local_port NOT BETWEEN 1 AND 65535 THEN RETURN NEW; END IF;
+    IF jsonb_object_length(NEW.result_json) <> 2
+       OR NOT (NEW.result_json ?& ARRAY['local_port','container_name'])
+       OR jsonb_typeof(NEW.result_json->'local_port') <> 'number'
+       OR jsonb_typeof(NEW.result_json->'container_name') <> 'string'
+       OR NEW.result_json->>'container_name' <> ('cloudexify-' || v_job.deployment_id::text) THEN
+      RETURN NEW;
+    END IF;
+
+    v_port_numeric := (NEW.result_json->>'local_port')::numeric;
+    IF v_port_numeric <> trunc(v_port_numeric)
+       OR v_port_numeric < 1
+       OR v_port_numeric > 65535 THEN
+      RETURN NEW;
+    END IF;
+    v_local_port := v_port_numeric::integer;
 
     UPDATE public.deployments
        SET runtime_local_port = v_local_port,
@@ -192,8 +201,10 @@ BEGIN
        AND tenant_id = v_job.tenant_id
        AND target_node_id = v_job.node_id
        AND desired_state = 'running';
-  ELSE
-    IF v_job.type <> 'stop' THEN RETURN NEW; END IF;
+  ELSIF NEW.result_code IN ('workload_stopped','workload_already_stopped') THEN
+    IF v_job.type <> 'stop' THEN
+      RETURN NEW;
+    END IF;
     UPDATE public.deployments
        SET runtime_local_port = NULL,
            runtime_observed_at = NEW.finished_at,
@@ -205,7 +216,7 @@ BEGIN
 
   RETURN NEW;
 END
-$endpoint$;
+$runtime_endpoint$;
 
 DROP TRIGGER IF EXISTS job_attempts_record_deployment_endpoint ON public.job_attempts;
 CREATE TRIGGER job_attempts_record_deployment_endpoint
