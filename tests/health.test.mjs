@@ -38,7 +38,11 @@ const readySchema = {
   deployment_rollback_reconciliation: true,
   deployment_runtime_local_port: true,
   job_attempt_result_json: true,
-  deployment_endpoint_registration: true
+  deployment_endpoint_registration: true,
+  domain_claims_table: true,
+  domain_challenges_table: true,
+  domain_verify_function: true,
+  domain_expiry_function: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -58,7 +62,8 @@ test("health reports ready only when the existing control-plane schema is comple
     deployment_lifecycle_jobs: "ready",
     durable_runtime_reconciliation: "ready",
     automatic_deployment_rollback: "ready",
-    runtime_endpoint_registration: "ready"
+    runtime_endpoint_registration: "ready",
+    domain_claims: "ready"
   });
 });
 
@@ -130,6 +135,14 @@ test("health identifies migration 014 when runtime endpoint registration is inco
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["014_runtime_endpoint_registration"]);
+});
+
+test("health identifies migration 015 when domain claim APIs are not database-ready", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, domain_expiry_function: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["015_domain_claims"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
