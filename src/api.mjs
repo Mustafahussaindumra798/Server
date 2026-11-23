@@ -214,6 +214,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (!["healthy", "degraded"].includes(body.health_status)) { const error = new Error("health_status must be healthy or degraded."); error.status = 400; throw error; }
         const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
         const resources = body.resources == null ? {} : body.resources;
+        const capabilities = body.capabilities == null ? {} : body.capabilities;
+        if (!capabilities || Array.isArray(capabilities) || typeof capabilities !== "object" || Buffer.byteLength(JSON.stringify(capabilities), "utf8") > 8192) { const error = new Error("capabilities must be a JSON object of at most 8 KiB."); error.status = 400; throw error; }
         const allowed = new Set([
           "cpu_percent","cpu_cores","cpu_frequency_mhz","load_1m","uptime_seconds",
           "memory_total_bytes","memory_used_bytes","memory_available_bytes",
@@ -241,7 +243,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           const error = new Error("resources must contain only supported finite numeric metrics with consistent capacity values (16 KiB maximum)."); error.status = 400; throw error;
         }
         const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
-        const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources });
+        const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources, capabilities });
         if (!heartbeat) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
         send(response, 200, { node: { id: heartbeat.node_id, status: heartbeat.status, last_seen_at: heartbeat.last_seen_at } }, requestId);
         return true;
