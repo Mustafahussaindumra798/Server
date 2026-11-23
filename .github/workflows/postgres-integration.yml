@@ -71,6 +71,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/014_runtime_endpoint_registration.sql
       - name: Apply tenant-scoped domain claims migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/015_domain_claims.sql
+      - name: Apply deployment domain route registry migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/016_deployment_domain_route_registry.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify runtime capability heartbeat
@@ -89,5 +91,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/runtime-endpoint-registration.integration.sql
       - name: Verify domain claims and DNS challenge lifecycle
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/domain-claims.integration.sql
+      - name: Verify deployment domain route registry
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/deployment-domain-route-registry.integration.sql
       - name: Run application tests
         run: npm test
