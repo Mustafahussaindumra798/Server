@@ -197,7 +197,9 @@ export function createRouteStreamManager({
         node.drainPromise = null;
         const activeStreams = node.streamIds.size;
         if (!drained && nodes.get(nodeId) === node) {
-          detachNode(nodeId, new Error("Node route drain timed out."));
+          const error = new Error("Node route drain timed out.");
+          detachNode(nodeId, error);
+          try { node.socket.destroy?.(error); } catch {}
         }
         resolve({ drained, activeStreams: drained ? 0 : activeStreams });
       };
