@@ -59,11 +59,13 @@ This adapter is a tested execution primitive, not yet a complete public deployme
 
 1. Control-plane job creation/authorization and deployment-to-job state transitions (implemented; migrations 009–011).
 2. Periodic runtime drift detection and recovery for workloads that fail after a successful restart reconciliation.
-3. Automatic rollback to the previous healthy revision after terminal failure.
+3. Automatic rollback to the previous health-verified revision after terminal deployment failure (control-plane queueing and health-gated completion are implemented in migration 013; physical-node verification remains pending).
 4. Reverse-proxy ingress, TLS, host routing and safe port lifecycle.
 5. Persistent per-application volumes, storage lifecycle, backup and restore; the ephemeral writable-layer quota is implemented but does not provide durable volumes.
 6. Structured workload logs, metrics, cleanup and upgrade/recovery procedures.
 7. Provision and rotate the Cosign trust public key on every eligible node through a trusted node-administration process.
 8. Debian 12 x86_64 and ARM64 qualification on real hosts.
 
-The currently implemented adapter binds published ports to loopback only. It does not make applications publicly reachable.
+On terminal failure of a normal deployment, migration 013 selects the latest earlier healthy revision for the same application, provided its node is approved and has a fresh heartbeat. It creates a new immutable rollback revision and typed deploy job, copying the prior digest, port, health policy and resource requests. The rollback revision must pass its own HTTP health check before the failed revision is marked `rolled_back`. Rollback revisions cannot recursively trigger another rollback. If there is no eligible previous healthy revision, the failed deployment remains failed. Physical-node rollback verification is still pending.
+
+The currently implemented adapter binds published ports to loopback only. It does not make applications publicly reachable. This rollback restores the previous artifact at the node; it does not yet switch customer traffic because reverse-proxy ingress and routing are not implemented.
