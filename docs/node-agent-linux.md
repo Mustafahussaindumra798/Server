@@ -67,6 +67,19 @@ sudo systemctl status cloudexify-node-agent
 
 Set the control-plane URL in `/etc/cloudexify/node-agent.env` if desired. Do not put the one-time enrollment token or node credential in that file. The unit uses a dedicated unprivileged account, a private state directory, read-only system paths, and systemd sandboxing. Validate the service against the target distribution before production use.
 
+## Runtime capability detection
+
+At enrollment, the agent performs a bounded, non-mutating Podman probe on Linux only. It invokes the fixed executable `podman info --format json` without a shell, with a 3-second timeout and a 64 KiB output cap. It records the Podman version only when returned by the local runtime.
+
+A node advertises `container_runtime: podman-rootless` only when all of these checks pass:
+
+- Podman responds with valid JSON.
+- Podman reports rootless mode.
+- Podman reports cgroup version v2.
+- `/sys/fs/cgroup/cgroup.controllers` is readable and non-empty.
+
+Missing binaries, malformed output, timeouts, rootful Podman, or missing cgroup v2 fail closed. Termux never probes or advertises a container runtime. This is capability discovery only: `workload_execution` remains `false`. No image is pulled, no container is created, and no application code is executed.
+
 ## Observability and limitations
 
 Structured logs include timestamps, node ID, job ID, and bounded result codes; they never intentionally include the node credential or lease token. Metrics that cannot be read are omitted rather than represented as zero. The CPU percentage is sampled over a short interval; disk and memory values are point-in-time estimates.
