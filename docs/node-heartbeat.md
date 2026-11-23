@@ -10,9 +10,9 @@ Headers: Authorization: Bearer <node-credential>; Content-Type: application/json
 
 Example body:
 
-    { "agent_version": "0.1.0", "health_status": "healthy", "resources": { "cpu_percent": 21.5, "memory_total_bytes": 8589934592, "memory_used_bytes": 3221225472, "uptime_seconds": 3600 } }
+    { "agent_version": "0.1.0", "health_status": "healthy", "resources": { "cpu_cores": 4, "cpu_percent": 21.5, "memory_total_bytes": 8589934592, "memory_used_bytes": 3221225472, "uptime_seconds": 3600 } }
 
-Health must be healthy or degraded. Resource metrics are optional numeric values from the allowlist: cpu_percent, memory_total_bytes, memory_used_bytes, disk_total_bytes, disk_available_bytes, load_1m, uptime_seconds, battery_percent and temperature_c. Unknown keys, non-finite/negative values, CPU/battery percentages above 100, more than nine metrics, and payloads over 8 KiB are rejected.
+Health must be healthy or degraded. Resource metrics are optional numeric values from the allowlist: cpu_percent, memory_total_bytes, memory_used_bytes, disk_total_bytes, disk_available_bytes, load_1m, uptime_seconds, battery_percent and temperature_c and cpu_cores. cpu_cores is the node's available logical CPU count (1–256) and is required for CPU capacity admission. Unknown keys, non-finite/negative values, CPU/battery percentages above 100, more than ten metrics, and payloads over 8 KiB are rejected.
 
 ## Authentication and persistence
 
