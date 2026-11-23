@@ -131,6 +131,48 @@ BEGIN
     END IF;
   END;
 
+
+  -- The route is pinned to its registered node. Moving the deployment to a
+  -- different node suspends the old route and advances its version; moving it
+  -- back reactivates it with another version increment.
+  DECLARE
+    v_replacement_node uuid;
+    v_route_version_before bigint;
+    v_route_version_after bigint;
+  BEGIN
+    INSERT INTO public.nodes (
+      tenant_id, name, platform, architecture, status, approved_at,
+      last_seen_at, heartbeat_interval_seconds, capabilities_json
+    ) VALUES (
+      v_tenant, 'route-replacement-node', 'linux', 'x86_64', 'online',
+      clock_timestamp(), clock_timestamp(), 30,
+      '{"ingress_tunnel":true,"loopback_forwarder":true}'::jsonb
+    ) RETURNING id INTO v_replacement_node;
+
+    SELECT route_version INTO v_route_version_before
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    UPDATE public.deployments
+       SET target_node_id = v_replacement_node
+     WHERE id = v_deployment;
+    SELECT route_version, status, reason_code
+      INTO v_route_version_after, v_status, v_reason
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    IF v_status <> 'suspended' OR v_reason <> 'node_not_qualified'
+       OR v_route_version_after <> v_route_version_before + 1 THEN
+      RAISE EXCEPTION 'Deployment target-node change did not suspend and version the pinned route';
+    END IF;
+
+    UPDATE public.deployments
+       SET target_node_id = v_node
+     WHERE id = v_deployment;
+    SELECT route_version, status
+      INTO v_route_version_after, v_status
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    IF v_status <> 'active' OR v_route_version_after <> v_route_version_before + 2 THEN
+      RAISE EXCEPTION 'Restoring the original target node did not reactivate and version the route';
+    END IF;
+  END;
+
   BEGIN
     PERFORM app_private.register_deployment_domain_route(v_unverified_domain, v_deployment);
     RAISE EXCEPTION 'Unverified domain was accepted';
