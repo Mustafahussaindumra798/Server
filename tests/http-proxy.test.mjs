@@ -68,7 +68,7 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
     pool,
     routeStreams,
     signRouteGrant: (value) => { assert.equal(value.route_id, route.route_id); return { token: "signed-route-grant" }; },
-    certificate: { checkHost: () => certificateMatches }
+    certificate: { checkHost: () => true }
   });
   const server = http.createServer((req, res) => { void handler(req, res); });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
