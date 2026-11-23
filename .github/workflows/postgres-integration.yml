@@ -59,6 +59,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/008_runtime_capability_heartbeat.sql
       - name: Apply deployment job orchestration migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/009_deployment_job_orchestration.sql
+      - name: Apply deployment health checks migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/010_deployment_health_checks.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify runtime capability heartbeat
