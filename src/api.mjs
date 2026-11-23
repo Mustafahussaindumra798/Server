@@ -534,16 +534,67 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           if (desiredState === "running") {
             const placementResult = await client.query(`
               SELECT node.id,
-                CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*
+                CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
+                  THEN (node.resource_metrics_json->>'cpu_cores')::integer ELSE NULL END AS cpu_cores,
                 node.resource_metrics_json AS resources
               FROM nodes AS node
               WHERE node.tenant_id = $1
                 AND node.approved_at IS NOT NULL
                 AND node.status IN ('online', 'degraded')
                 AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
-                AND node.resource_metrics_json ?& ARRAY['cpu_percent','memory_total_bytes','memory_used_bytes','disk_available_bytes']
-                AND (node.capabilities_json->>'cpu_cores') ~ '^[1-9][0-9]*
+                AND node.resource_metrics_json ?& ARRAY['cpu_cores','cpu_percent','memory_total_bytes','memory_used_bytes','disk_available_bytes']
+                AND CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
+                  THEN (node.resource_metrics_json->>'cpu_cores')::integer BETWEEN 1 AND 256 ELSE false END
+                AND (node.resource_metrics_json->>'cpu_percent')::numeric < 85
+                AND ((CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
+                      THEN (node.resource_metrics_json->>'cpu_cores')::bigint ELSE 0 END) * 1000 -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $2
+                AND ((node.resource_metrics_json->>'memory_total_bytes')::bigint -
+                     (node.resource_metrics_json->>'memory_used_bytes')::bigint -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'memory_bytes')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $3
+                AND ((node.resource_metrics_json->>'disk_available_bytes')::bigint -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'disk_bytes')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $4
+                AND ($5::uuid IS NULL OR node.id = $5)
+              ORDER BY
+                ((CASE WHEN (node.resource_metrics_json->>'cpu_cores') ~ '^[1-9][0-9]*$'
+                  THEN (node.resource_metrics_json->>'cpu_cores')::bigint ELSE 0 END) * 1000 -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) ASC,
+                node.id ASC
+              FOR UPDATE OF node SKIP LOCKED
+              LIMIT 1
+            `, [tenantId, resourceRequests.cpu_millicores, resourceRequests.memory_bytes, resourceRequests.disk_bytes, requestedNodeId]);
+            if (!placementResult.rows[0]) {
+              const error = new Error("No eligible node has fresh telemetry and sufficient unreserved CPU, memory and disk capacity.");
+              error.status = 409;
+              throw error;
+            }
+            targetNodeId = placementResult.rows[0].id;
+            placement = "capacity_admitted";
+          }
+          const revision = await client.query("SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM deployments WHERE tenant_id = $1 AND application_id = $2", [tenantId, applicationId]);
+          const created = await client.query(
+            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at",
+            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id]
+          );
+          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState, placement, target_node_id: targetNodeId, resource_requests: resourceRequests });
+          return { status: 201, body: { deployment: created.rows[0], runtime_enabled: false } };
         }
+
 
         if (resource === "enrollment-tokens" && request.method === "POST") {
           requirePermission(role, "manageNodes");
