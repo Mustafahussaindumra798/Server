@@ -106,6 +106,9 @@ export function createHealthHandler(databasePool) {
           to_regprocedure('app_private.reconcile_node_deployments(uuid)') IS NOT NULL AS runtime_reconciliation_function,
           to_regclass('public.domain_claims') IS NOT NULL AS domain_claims_table,
           to_regclass('public.domain_verification_challenges') IS NOT NULL AS domain_challenges_table,
+          to_regclass('public.deployment_domain_routes') IS NOT NULL AS deployment_domain_routes_table,
+          to_regprocedure('app_private.register_deployment_domain_route(uuid,uuid)') IS NOT NULL AS deployment_domain_route_register_function,
+          to_regprocedure('app_private.reconcile_deployment_domain_route(uuid)') IS NOT NULL AS deployment_domain_route_reconcile_function,
           to_regprocedure('app_private.verify_domain_claim(uuid,text)') IS NOT NULL AS domain_verify_function,
           to_regprocedure('app_private.revoke_expired_domain_challenges(uuid)') IS NOT NULL AS domain_expiry_function
       `);
@@ -122,8 +125,9 @@ export function createHealthHandler(databasePool) {
       const deploymentRollbackReady = schema.deployment_automatic_rollback && schema.deployment_rollback_reconciliation;
       const deploymentEndpointReady = schema.deployment_runtime_local_port && schema.job_attempt_result_json && schema.deployment_endpoint_registration;
       const domainClaimsReady = schema.domain_claims_table && schema.domain_challenges_table && schema.domain_verify_function && schema.domain_expiry_function;
+      const domainRouteRegistryReady = schema.deployment_domain_routes_table && schema.deployment_domain_route_register_function && schema.deployment_domain_route_reconcile_function;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady || !domainClaimsReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady || !domainClaimsReady || !domainRouteRegistryReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -139,7 +143,8 @@ export function createHealthHandler(databasePool) {
             ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : []),
             ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : []),
             ...(!deploymentEndpointReady ? ["014_runtime_endpoint_registration"] : []),
-            ...(!domainClaimsReady ? ["015_domain_claims"] : [])
+            ...(!domainClaimsReady ? ["015_domain_claims"] : []),
+            ...(!domainRouteRegistryReady ? ["016_deployment_domain_route_registry"] : [])
           ]
         }));
         return;
@@ -159,7 +164,8 @@ export function createHealthHandler(databasePool) {
         durable_runtime_reconciliation: "ready",
         automatic_deployment_rollback: "ready",
         runtime_endpoint_registration: "ready",
-        domain_claims: "ready"
+        domain_claims: "ready",
+        deployment_domain_route_registry: "pending_transport_only"
       }));
     } catch {
       response.statusCode = 503;
