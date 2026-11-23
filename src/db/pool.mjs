@@ -142,6 +142,67 @@ export async function withNodeJobAcknowledgement(pool, acknowledgement) {
 }
 
 
+export async function withNodeRouteAuthorization(pool, authorization) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const credential = await client.query(
+      "SELECT app_private.node_credential_is_valid($1, $2) AS valid",
+      [authorization.nodeId, authorization.credentialHash]
+    );
+    if (!credential.rows[0]?.valid) {
+      await client.query("COMMIT");
+      transactionStarted = false;
+      return null;
+    }
+    const result = await client.query(`
+      SELECT route.id AS route_id, route.route_version, route.tenant_id,
+             claim.hostname, deployment.id AS deployment_id,
+             route.node_id, deployment.runtime_local_port AS local_port
+        FROM public.deployment_domain_routes AS route
+        JOIN public.domain_claims AS claim
+          ON claim.id = route.domain_claim_id AND claim.tenant_id = route.tenant_id
+        JOIN public.tenants AS tenant ON tenant.id = route.tenant_id
+        JOIN public.applications AS application
+          ON application.id = route.application_id AND application.tenant_id = route.tenant_id
+        JOIN public.deployments AS deployment
+          ON deployment.id = route.deployment_id
+         AND deployment.application_id = route.application_id
+         AND deployment.tenant_id = route.tenant_id
+        JOIN public.nodes AS node
+          ON node.id = route.node_id AND node.tenant_id = route.tenant_id
+       WHERE route.id = $1
+         AND route.node_id = $2
+         AND route.status = 'pending_transport'
+         AND route.reason_code = 'transport_not_qualified'
+         AND claim.status = 'verified'
+         AND tenant.status = 'active'
+         AND application.desired_state = 'running'
+         AND deployment.desired_state = 'running'
+         AND deployment.status = 'healthy'
+         AND deployment.target_node_id = node.id
+         AND deployment.runtime_local_port BETWEEN 1 AND 65535
+         AND deployment.runtime_observed_at > clock_timestamp() - interval '5 minutes'
+         AND node.platform = 'linux'
+         AND node.approved_at IS NOT NULL
+         AND node.status = 'online'
+         AND node.last_seen_at > clock_timestamp() -
+             make_interval(secs => node.heartbeat_interval_seconds * 3)
+       FOR SHARE OF route, deployment, node
+    `, [authorization.routeId, authorization.nodeId]);
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return result.rows[0] || false;
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function withNodeRuntimeReconciliation(pool, reconciliation) {
   const client = await pool.connect();
   let transactionStarted = false;
