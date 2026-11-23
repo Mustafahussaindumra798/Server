@@ -80,6 +80,7 @@ async function main() {
 
   let ingressServer = null;
   if (process.env.CLOUDEXIFY_PUBLIC_INGRESS_ENABLED === "true") {
+    try {
     const ingressPort = Number(process.env.CLOUDEXIFY_INGRESS_LISTEN_PORT || 443);
     const ingressHost = process.env.CLOUDEXIFY_INGRESS_LISTEN_HOST || "0.0.0.0";
     if (!Number.isInteger(ingressPort) || ingressPort < 1 || ingressPort > 65535) {
@@ -113,15 +114,10 @@ async function main() {
       keepAliveTimeout: 5000
     }, (request, response) => { void handler(request, response); });
     ingressServer.maxConnections = 1000;
-    try {
-      await new Promise((resolve, reject) => {
-        ingressServer.once("error", reject);
-        ingressServer.listen(ingressPort, ingressHost, resolve);
-      });
-    } catch (error) {
-      server.close(() => { void pool.end(); });
-      throw error;
-    }
+    await new Promise((resolve, reject) => {
+      ingressServer.once("error", reject);
+      ingressServer.listen(ingressPort, ingressHost, resolve);
+    });
     process.stdout.write(JSON.stringify({
       timestamp: new Date().toISOString(),
       event: "public_https_ingress_started",
@@ -130,6 +126,11 @@ async function main() {
       protocol: "HTTPS/TLS1.3",
       hostname_routes: "active_routes_only"
     }) + "\n");
+    } catch (error) {
+      ingressServer?.close();
+      server.close(() => { void pool.end(); });
+      throw error;
+    }
   }
 
   const shutdown = () => {
