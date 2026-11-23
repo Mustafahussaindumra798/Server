@@ -2,6 +2,8 @@ import os from "node:os";
 import { existsSync } from "node:fs";
 import { readFile, statfs } from "node:fs/promises";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 const ARCHITECTURES = new Map([["x64", "x86_64"], ["arm64", "aarch64"]]);
 
@@ -18,13 +20,57 @@ export function getLinuxIdentity(platform = process.platform, architecture = pro
   return { platform: isTermux ? "android" : "linux", architecture: normalized, environment: isTermux ? "termux" : "linux" };
 }
 
-export function getCapabilities(identity = getLinuxIdentity()) {
+const execFileAsync = promisify(execFile);
+
+export async function detectPodmanRuntime({
+  runCommand = execFileAsync,
+  readCgroupControllers = () => readFile("/sys/fs/cgroup/cgroup.controllers", "utf8")
+} = {}) {
+  let info;
+  try {
+    const result = await runCommand("podman", ["info", "--format", "json"], {
+      timeout: 3000,
+      maxBuffer: 64 * 1024,
+      windowsHide: true
+    });
+    const output = typeof result?.stdout === "string" ? result.stdout : "";
+    info = JSON.parse(output);
+  } catch {
+    return { available: false, ready: false, reason: "podman_unavailable_or_unresponsive" };
+  }
+
+  const rootless = info?.host?.security?.rootless === true;
+  const cgroupVersion = String(info?.host?.cgroupVersion || info?.host?.cgroupManagerVersion || "").toLowerCase();
+  const version = String(info?.version?.Version || info?.version?.version || "").slice(0, 40) || null;
+  let cgroupV2Available = false;
+  try {
+    const controllers = await readCgroupControllers();
+    cgroupV2Available = typeof controllers === "string" && controllers.trim().length > 0;
+  } catch { /* cgroup v2 is a required capability, not an assumption */ }
+
+  const ready = rootless && cgroupVersion === "v2" && cgroupV2Available;
+  return {
+    available: true,
+    ready,
+    version,
+    rootless,
+    cgroup_version: cgroupVersion || null,
+    cgroup_v2_available: cgroupV2Available,
+    reason: ready ? null : !rootless ? "podman_not_rootless" : "cgroup_v2_unavailable"
+  };
+}
+
+export async function getCapabilities(identity = getLinuxIdentity(), { podmanProbe = detectPodmanRuntime } = {}) {
+  const podman = identity.platform === "linux"
+    ? await podmanProbe()
+    : { available: false, ready: false, reason: "platform_not_qualified" };
   return {
     agent_protocol: 1,
     diagnostics: ["probe", "collect_metrics"],
     service_manager: identity.platform === "linux" && existsSync("/run/systemd/system") ? "systemd" : null,
     environment: identity.environment,
-    container_runtime: null,
+    container_runtime: podman.ready ? "podman-rootless" : null,
+    runtime_probe: { podman },
     workload_execution: false
   };
 }
