@@ -102,6 +102,16 @@ function validateJobPayload(type, payload) {
   return {};
 }
 
+function validateImageDigest(value) {
+  if (typeof value !== "string" ||
+      !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?\/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$/.test(value)) {
+    const error = new Error("image_digest must be a fully qualified OCI image reference pinned to a SHA-256 digest.");
+    error.status = 400;
+    throw error;
+  }
+  return value;
+}
+
 function validateResourceRequests(value) {
   const input = value == null ? {} : value;
   if (!input || Array.isArray(input) || typeof input !== "object") {
@@ -622,7 +632,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (resource === "deployments" && request.method === "GET") {
           requirePermission(role, "read");
           const deployments = await client.query(
-            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at, updated_at FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, image_digest, container_port, resource_requests_json AS resource_requests, created_by, created_at, updated_at FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
             [tenantId]
           );
           return { status: 200, body: { deployments: deployments.rows } };
@@ -645,6 +655,13 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           );
           if (!application.rows[0]) { const error = new Error("Application not found."); error.status = 404; throw error; }
           const resourceRequests = validateResourceRequests(application.rows[0].resource_requests_json);
+          const imageDigest = desiredState === "running" ? validateImageDigest(body.image_digest) : null;
+          const containerPort = desiredState === "running" ? body.container_port : null;
+          if (desiredState === "running" && (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535)) {
+            const error = new Error("container_port must be an integer from 1 to 65535.");
+            error.status = 400;
+            throw error;
+          }
           let targetNodeId = requestedNodeId;
           let placement = "stopped";
           if (desiredState === "running") {
@@ -703,11 +720,30 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           }
           const revision = await client.query("SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM deployments WHERE tenant_id = $1 AND application_id = $2", [tenantId, applicationId]);
           const created = await client.query(
-            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at",
-            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id]
+            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by, image_digest, container_port) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, image_digest, container_port, resource_requests_json AS resource_requests, created_by, created_at",
+            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id, imageDigest, containerPort]
           );
-          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState, placement, target_node_id: targetNodeId, resource_requests: resourceRequests });
-          return { status: 201, body: { deployment: created.rows[0], runtime_enabled: false } };
+          let workloadJob = null;
+          if (desiredState === "running") {
+            const payload = {
+              deployment_id: created.rows[0].id,
+              image: imageDigest,
+              container_port: containerPort,
+              resources: {
+                cpu_millicores: resourceRequests.cpu_millicores,
+                memory_bytes: resourceRequests.memory_bytes
+              }
+            };
+            const queued = await client.query(
+              "INSERT INTO jobs (tenant_id, node_id, deployment_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, 'deploy', $4::jsonb, $5) RETURNING id, status",
+              [tenantId, targetNodeId, created.rows[0].id, JSON.stringify(payload), "deployment:" + created.rows[0].id + ":deploy"]
+            );
+            workloadJob = queued.rows[0] || null;
+            if (!workloadJob) { const error = new Error("Deployment job could not be queued."); error.status = 503; throw error; }
+            await audit(client, tenantId, user.id, "deployment.job.queued", "deployment", created.rows[0].id, { job_id: workloadJob.id, node_id: targetNodeId });
+          }
+          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState, placement, target_node_id: targetNodeId, resource_requests: resourceRequests, image_digest: imageDigest, runtime_job_queued: Boolean(workloadJob) });
+          return { status: 201, body: { deployment: created.rows[0], job: workloadJob, runtime_job_queued: Boolean(workloadJob), runtime_enabled: false } };
         }
 
         if (resource === "enrollment-tokens" && request.method === "POST") {
