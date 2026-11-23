@@ -30,6 +30,14 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
         return { rows: [{ id: userId, identity_subject: issuer + "|api-user", email: "api@example.test", display_name: "API User" }], rowCount: 1 };
       }
       if (query.startsWith("SELECT id, status, approved_at FROM nodes")) return { rows: [{ id: params[0], status: "pending", approved_at: null }], rowCount: 1 };
+      if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds, capabilities_json, ingress_draining FROM nodes")) return { rows: [{
+        id: params[0], status: "online", approved_at: new Date().toISOString(),
+        last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 30,
+        capabilities_json: { ingress_tunnel: true, loopback_forwarder: true }, ingress_draining: false
+      }], rowCount: 1 };
+      if (query.startsWith("UPDATE nodes SET ingress_draining = $3")) return { rows: [{
+        id: params[0], status: "online", ingress_draining: params[2], last_seen_at: new Date().toISOString()
+      }], rowCount: 1 };
       if (query.startsWith("UPDATE nodes SET approved_at = COALESCE(approved_at, now())")) return { rows: [{ id: params[0], status: "online", approved_at: new Date().toISOString(), last_seen_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("UPDATE nodes SET status = 'revoked', approved_at = NULL")) return { rows: [{ id: params[0], status: "revoked", approved_at: null, last_seen_at: null }], rowCount: 1 };
       if (query.startsWith("SELECT id FROM nodes WHERE id =")) return { rows: [{ id: params[0] }], rowCount: 1 };
@@ -347,6 +355,36 @@ test("owner can approve a pending node and the action is audited", async (t) => 
   assert.equal((await response.json()).node.id, nodeId);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET approved_at = COALESCE(approved_at, now())")), true);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.approved"), true);
+});
+
+test("owner can drain and resume an ingress-qualified node with audit events", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const nodeId = "30000000-0000-4000-8000-000000000001";
+  const endpoint = api.origin + "/api/v1/tenants/" + tenantId + "/nodes/" + nodeId + "/state";
+  const headers = { authorization: "Bearer " + makeToken(), "content-type": "application/json" };
+
+  const drain = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ ingress_state: "draining" }) });
+  assert.equal(drain.status, 200);
+  assert.equal((await drain.json()).node.ingress_draining, true);
+
+  const resume = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ ingress_state: "active" }) });
+  assert.equal(resume.status, 200);
+  assert.equal((await resume.json()).node.ingress_draining, false);
+
+  assert.equal(api.pool.calls.filter((call) => call.sql.startsWith("UPDATE nodes SET ingress_draining = $3")).length, 2);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.ingress.draining"), true);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.ingress.resumed"), true);
+});
+
+test("viewer cannot change node ingress drain state", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/30000000-0000-4000-8000-000000000001/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ ingress_state: "draining" })
+  });
+  assert.equal(response.status, 403);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET ingress_draining")), false);
 });
 
 test("viewer cannot approve or reject nodes", async (t) => {
