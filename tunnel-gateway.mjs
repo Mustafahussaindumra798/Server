@@ -84,7 +84,7 @@ async function main() {
         timestamp: new Date().toISOString(), event: "node_tunnel_authenticated", node_id: nodeId
       }) + "\n");
     },
-    onDisconnect: ({ nodeId }) => routeStreams.detachNode(nodeId),
+    onDisconnect: ({ nodeId, socket }) => routeStreams.detachNode(nodeId, new Error("Node tunnel disconnected."), socket),
     onRouteMessage: ({ nodeId, message }) => routeStreams.handleNodeMessage(nodeId, message)
   });
 
