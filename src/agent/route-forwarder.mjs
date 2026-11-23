@@ -131,6 +131,14 @@ export function createRouteForwarder({
       }
       return true;
     }
+    if (message.type === "route_pause" || message.type === "route_resume") {
+      if (!STREAM_ID.test(message.stream_id || "")) return false;
+      const stream = streams.get(message.stream_id);
+      if (!stream || !stream.connected) return false;
+      if (message.type === "route_pause") stream.local.pause();
+      else stream.local.resume();
+      return true;
+    }
     if (message.type === "route_close") {
       if (!STREAM_ID.test(message.stream_id || "")) return false;
       closeStream(message.stream_id, "remote_closed", false);
