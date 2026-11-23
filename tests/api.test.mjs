@@ -20,7 +20,7 @@ function makeToken() {
   return input + "." + sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url");
 }
 
-function fakePool(role = "viewer", { applicationDeployments = [], deploymentRecord = null } = {}) {
+function fakePool(role = "viewer", { applicationDeployments = [], deploymentRecord = null, domainClaim = null, domainChallenge = null } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -39,6 +39,14 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
       if (query.startsWith("INSERT INTO jobs")) return { rows: [{ id: "60000000-0000-4000-8000-000000000001", tenant_id: tenantId, node_id: params[1], type: params[2], payload: JSON.parse(params[3]), status: "queued", attempt_count: 0, max_attempts: 5, created_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs")) return { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, available_at, lease_expires_at, created_at, updated_at FROM jobs")) return { rows: [], rowCount: 0 };
+      if (query.startsWith("INSERT INTO domain_claims")) return { rows: [{ id: "71000000-0000-4000-8000-000000000031", hostname: params[1], status: "pending_verification", created_at: new Date().toISOString() }], rowCount: 1 };
+      if (query.startsWith("INSERT INTO domain_verification_challenges")) return { rows: [{ id: "72000000-0000-4000-8000-000000000031", record_name: params[3], expires_at: new Date(Date.now() + 1800000).toISOString() }], rowCount: 1 };
+      if (query.startsWith("SELECT id, hostname, status FROM domain_claims")) return { rows: domainClaim ? [domainClaim] : [{ id: params[0], hostname: "app.example.test", status: "pending_verification" }], rowCount: domainClaim ? 1 : 1 };
+      if (query.startsWith("SELECT id, token_hash, record_name, expires_at FROM domain_verification_challenges")) return { rows: domainChallenge ? [domainChallenge] : [], rowCount: domainChallenge ? 1 : 0 };
+      if (query.startsWith("SELECT app_private.verify_domain_claim")) return { rows: [{ verified: true }], rowCount: 1 };
+      if (query.startsWith("SELECT app_private.revoke_expired_domain_challenges")) return { rows: [{ revoke_expired_domain_challenges: 0 }], rowCount: 1 };
+      if (query.startsWith("SELECT claim.id, claim.hostname")) return { rows: domainClaim ? [{ ...domainClaim, record_name: "_cloudexify-verify." + domainClaim.hostname }] : [], rowCount: domainClaim ? 1 : 0 };
+      if (query.startsWith("SELECT id, hostname, status, verified_at")) return { rows: domainClaim ? [domainClaim] : [], rowCount: domainClaim ? 1 : 0 };
       if (query.startsWith("SELECT membership.role")) {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
@@ -83,6 +91,7 @@ async function startApi(role = "viewer", options = {}) {
     pool,
     env: { OIDC_ISSUER: issuer, OIDC_AUDIENCE: audience, OIDC_JWKS_URI: "https://identity.example.test/jwks" },
     fetchImpl: async () => ({ ok: true, json: async () => ({ keys: [jwk] }) }),
+    resolveTxtFn: options.resolveTxtFn || (async () => []),
     logger: { error() {} }
   });
   const server = http.createServer((req, res) => { void handler(req, res); });
@@ -667,3 +676,81 @@ test("owner can load the combined dashboard snapshot in one database query", asy
   assert.deepEqual(payload, { nodes: [], applications: [], deployments: [], jobs: [], members: [] });
   assert.equal(api.pool.calls.filter((call) => call.sql.includes("AS nodes") && call.sql.includes("AS applications")).length, 1);
 });
+
+test("owner can create a canonical IDNA domain claim and receives a one-time TXT challenge", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ hostname: "Exämple.com." })
+  });
+  assert.equal(response.status, 201);
+  const payload = await response.json();
+  assert.equal(payload.domain.hostname, "xn--exmple-cua.com");
+  assert.equal(payload.verification.record_type, "TXT");
+  assert.equal(payload.verification.record_name, "_cloudexify-verify.xn--exmple-cua.com");
+  assert.match(payload.verification.record_value, /^cloudexify-verification=[A-Za-z0-9_-]{43}$/);
+  const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO domain_verification_challenges"));
+  assert.equal(insert.params[2], createHash("sha256").update(payload.verification.record_value.slice("cloudexify-verification=".length)).digest("hex"));
+  assert.equal(JSON.stringify(insert.params).includes(payload.verification.record_value), false);
+});
+
+test("viewer cannot create a domain claim", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ hostname: "app.example.test" })
+  });
+  assert.equal(response.status, 403);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO domain_claims")), false);
+});
+
+test("domain creation rejects URL, wildcard and IP hostnames", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  for (const hostname of ["https://example.com", "*.example.com", "127.0.0.1", "localhost"]) {
+    const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains", {
+      method: "POST",
+      headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+      body: JSON.stringify({ hostname })
+    });
+    assert.equal(response.status, 400, hostname);
+  }
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO domain_claims")), false);
+});
+
+test("domain verification resolves the exact TXT challenge and consumes its hash", async (t) => {
+  const token = "a".repeat(43);
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const api = await startApi("owner", {
+    domainClaim: { id: "71000000-0000-4000-8000-000000000031", hostname: "app.example.test", status: "pending_verification" },
+    domainChallenge: { id: "72000000-0000-4000-8000-000000000031", token_hash: tokenHash, record_name: "_cloudexify-verify.app.example.test", expires_at: new Date(Date.now() + 600000).toISOString() },
+    resolveTxtFn: async (name) => { assert.equal(name, "_cloudexify-verify.app.example.test"); return [["cloudexify-verification=", token]]; }
+  }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/verify", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: "{}"
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { verified: true, hostname: "app.example.test" });
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.verify_domain_claim") && call.params[1] === tokenHash), true);
+});
+
+test("domain verification does not accept a mismatched DNS TXT record", async (t) => {
+  const tokenHash = createHash("sha256").update("a".repeat(43)).digest("hex");
+  const api = await startApi("owner", {
+    domainClaim: { id: "71000000-0000-4000-8000-000000000031", hostname: "app.example.test", status: "pending_verification" },
+    domainChallenge: { id: "72000000-0000-4000-8000-000000000031", token_hash: tokenHash, record_name: "_cloudexify-verify.app.example.test", expires_at: new Date(Date.now() + 600000).toISOString() },
+    resolveTxtFn: async () => [["cloudexify-verification=", "b".repeat(43)]]
+  }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/verify", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: "{}"
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).verified, false);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.verify_domain_claim")), false);
+});
+
