@@ -415,10 +415,16 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
           const body = await readJson(request);
           const hostname = normalizeHostname(body.hostname);
           const challenge = makeDomainChallenge();
-          const claim = await client.query(
-            "INSERT INTO domain_claims (tenant_id, hostname, created_by) VALUES ($1, $2, $3) RETURNING id, hostname, status, created_at",
-            [tenantId, hostname, user.id]
-          );
+          let claim;
+          try {
+            claim = await client.query(
+              "INSERT INTO domain_claims (tenant_id, hostname, created_by) VALUES ($1, $2, $3) RETURNING id, hostname, status, created_at",
+              [tenantId, hostname, user.id]
+            );
+          } catch (insertError) {
+            if (insertError?.code === "23505") { const error = new Error("This hostname is already claimed by another active domain record."); error.status = 409; throw error; }
+            throw insertError;
+          }
           const claimRow = claim.rows[0];
           if (!claimRow) { const error = new Error("Domain claim could not be created."); error.status = 503; throw error; }
           const challengeRow = await client.query(
@@ -440,6 +446,11 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
           if (!claim.rows[0]) { const error = new Error("Domain claim not found."); error.status = 404; throw error; }
           if (claim.rows[0].status !== "pending_verification") { const error = new Error("Only pending domain claims can receive a new challenge."); error.status = 409; throw error; }
           await client.query("SELECT app_private.revoke_expired_domain_challenges($1)", [domainId]);
+          const activeChallenge = await client.query(
+            "SELECT id FROM domain_verification_challenges WHERE domain_claim_id = $1 AND tenant_id = $2 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now() LIMIT 1",
+            [domainId, tenantId]
+          );
+          if (activeChallenge.rows[0]) { const error = new Error("A DNS challenge is already active. Wait for it to expire before requesting another."); error.status = 409; throw error; }
           const challenge = makeDomainChallenge();
           const inserted = await client.query(
             "INSERT INTO domain_verification_challenges (domain_claim_id, tenant_id, token_hash, record_name, expires_at) VALUES ($1, $2, $3, $4, now() + interval '30 minutes') RETURNING record_name, expires_at",
