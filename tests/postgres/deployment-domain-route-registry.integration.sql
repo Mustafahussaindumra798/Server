@@ -84,13 +84,24 @@ BEGIN
     RAISE EXCEPTION 'Eligible route intent was not safely held pending transport';
   END IF;
 
-  IF EXISTS (
+  IF NOT EXISTS (
     SELECT 1 FROM information_schema.check_constraints
     WHERE constraint_schema = 'public'
-      AND constraint_name LIKE '%deployment_domain_routes%status%'
+      AND constraint_name = 'deployment_domain_routes_status_check'
       AND check_clause ILIKE '%active%'
   ) THEN
-    RAISE EXCEPTION 'Route registry unexpectedly permits an active state';
+    RAISE EXCEPTION 'Ingress activation migration did not add the guarded active route state';
+  END IF;
+
+  -- A route remains pending until the node explicitly advertises the complete
+  -- signed tunnel + loopback-forwarder capability pair.
+  UPDATE public.nodes
+     SET capabilities_json = '{"ingress_tunnel":true,"loopback_forwarder":true}'::jsonb
+   WHERE id = v_node;
+  SELECT status, reason_code INTO v_status, v_reason
+    FROM public.deployment_domain_routes WHERE id = v_route;
+  IF v_status <> 'active' OR v_reason <> 'transport_ready' THEN
+    RAISE EXCEPTION 'Qualified ingress transport did not activate the route';
   END IF;
 
   BEGIN
@@ -145,8 +156,8 @@ BEGIN
      SET runtime_observed_at = clock_timestamp()
    WHERE id = v_deployment;
   SELECT status INTO v_status FROM public.deployment_domain_routes WHERE id = v_route;
-  IF v_status <> 'pending_transport' THEN
-    RAISE EXCEPTION 'Fresh runtime endpoint did not restore pending route intent';
+  IF v_status <> 'active' THEN
+    RAISE EXCEPTION 'Fresh runtime endpoint did not restore the active route';
   END IF;
 
   -- A deployment that becomes unhealthy immediately withdraws its route intent.
@@ -163,8 +174,8 @@ BEGIN
          runtime_local_port = 49152, runtime_observed_at = clock_timestamp()
    WHERE id = v_deployment;
   SELECT status INTO v_status FROM public.deployment_domain_routes WHERE id = v_route;
-  IF v_status <> 'pending_transport' THEN
-    RAISE EXCEPTION 'Recovered deployment route did not return to pending transport';
+  IF v_status <> 'active' THEN
+    RAISE EXCEPTION 'Recovered deployment route did not return to active';
   END IF;
 
   -- Node revocation/offline state withdraws the route.
@@ -179,8 +190,8 @@ BEGIN
      SET status = 'online', last_seen_at = clock_timestamp(), approved_at = clock_timestamp()
    WHERE id = v_node;
   SELECT status INTO v_status FROM public.deployment_domain_routes WHERE id = v_route;
-  IF v_status <> 'pending_transport' THEN
-    RAISE EXCEPTION 'Recovered node did not restore pending route intent';
+  IF v_status <> 'active' THEN
+    RAISE EXCEPTION 'Recovered node did not restore active route';
   END IF;
 
   UPDATE public.domain_claims SET status = 'suspended', verified_at = NULL WHERE id = v_domain;
