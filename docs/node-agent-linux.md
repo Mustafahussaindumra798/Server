@@ -73,7 +73,7 @@ At enrollment, the agent performs a bounded, non-mutating Podman probe on Linux 
 
 A node advertises `container_runtime: podman-rootless` only when all of these checks pass:
 
-Workload placement additionally requires the Podman `overlay` storage driver and an explicit operator attestation: set `CLOUDEXIFY_STORAGE_QUOTA_READY=true` only after the backing filesystem has project-quota support configured and tested. This is an administrative assertion, not an automatic filesystem proof; Podman applies the per-container `--storage-opt=size=...` limit at creation and fails the deployment if the backing store rejects it.
+Workload placement additionally requires the Podman `overlay` storage driver, readable free space from Podman's actual `GraphRoot` filesystem, and an explicit operator attestation: set `CLOUDEXIFY_STORAGE_QUOTA_READY=true` only after the backing filesystem has project-quota support configured and tested. This is an administrative assertion, not an automatic filesystem proof; Podman applies the per-container `--storage-opt=size=...` limit at creation and fails the deployment if the backing store rejects it.
 
 - Podman responds with valid JSON.
 - Podman reports rootless mode.
