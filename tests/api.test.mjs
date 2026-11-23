@@ -491,6 +491,42 @@ test("node acknowledgement requires a valid lease and reports lifecycle state", 
   assert.equal((await response.json()).job.status, "succeeded");
 });
 
+test("node acknowledgement validates and forwards verified runtime endpoint metadata", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const endpoint = {
+    local_port: 49152,
+    container_name: "cloudexify-40000000-0000-4000-8000-000000000001"
+  };
+  const response = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/60000000-0000-4000-8000-000000000001/ack", {
+    method: "POST",
+    headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: JSON.stringify({
+      attempt_id: "70000000-0000-4000-8000-000000000001",
+      lease_token: "80000000-0000-4000-8000-000000000001",
+      status: "succeeded",
+      result_code: "workload_healthy",
+      result_summary: "Workload passed HTTP health check",
+      result_metadata: endpoint
+    })
+  });
+  assert.equal(response.status, 200);
+  const call = api.pool.calls.find((item) => item.sql.startsWith("SELECT * FROM app_private.acknowledge_node_job"));
+  assert.deepEqual(JSON.parse(call.params[8]), endpoint);
+
+  const invalid = await fetch(api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/jobs/60000000-0000-4000-8000-000000000001/ack", {
+    method: "POST",
+    headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: JSON.stringify({
+      attempt_id: "70000000-0000-4000-8000-000000000001",
+      lease_token: "80000000-0000-4000-8000-000000000001",
+      status: "succeeded",
+      result_code: "workload_healthy",
+      result_metadata: { local_port: 70000, container_name: "attacker-container" }
+    })
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("node runtime reconciliation requires its credential and queues recovery jobs", async (t) => {
   const api = await startApi("viewer"); t.after(api.close);
   const url = api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/runtime/reconcile";
