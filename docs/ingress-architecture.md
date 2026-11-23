@@ -61,10 +61,18 @@ The ingress gateway is the public TLS termination point. Issue certificates only
 - Rollback: route to the restored revision only after its health check succeeds.
 - If the tunnel, route registry, certificate or ownership state is uncertain, return an error rather than forwarding to an unverified upstream.
 
+## Route registry implementation boundary
+
+Migration `016_deployment_domain_route_registry.sql` adds an internal `deployment_domain_routes` registry. A route intent is bound by composite tenant foreign keys to one verified domain claim, application, deployment and target node. Registration is restricted to tenant Owner/Admin and requires an active tenant, running application, healthy running deployment, a recently observed loopback endpoint, and an approved, online, recently heartbeating Linux node.
+
+The registry intentionally permits only `pending_transport` and `suspended` states. It stores no upstream URL, public IP or local port and has no active state. A route remains pending even when all workload checks pass because node-initiated mTLS transport, the restricted node-side forwarder and gateway authorization are not implemented. Lifecycle triggers suspend route intents when domain verification, deployment health, endpoint freshness or node qualification is lost, and can return an eligible route to pending transport after recovery. Route registration is audited. The health endpoint reports this component as `pending_transport_only`, not as public ingress readiness.
+
+The database function `app_private.register_deployment_domain_route(domain_claim_id, deployment_id)` is the current internal registration interface. It is not a customer-facing route API and does not make DNS resolve or traffic flow.
+
 ## Implementation sequence
 
 1. Add tenant-scoped domain claims and verification challenge lifecycle with database constraints, RLS, audit events and integration tests.
-2. Add route registry records tied by composite tenant/deployment/node relationships; derive eligible routes from healthy deployment state rather than accepting arbitrary upstreams.
+2. Add the fail-closed route-intent registry with tenant-bound domain/deployment/node relationships, eligibility checks, lifecycle withdrawal and PostgreSQL integration tests.
 3. Implement per-node outbound mTLS tunnel and a restricted loopback forwarder; qualify reconnect, revocation and node identity binding.
 4. Implement gateway route synchronization, strict host matching, request limits, route versioning and fail-closed behavior.
 5. Add certificate issuance, renewal, rotation and expiry monitoring after DNS/domain verification is operational.
