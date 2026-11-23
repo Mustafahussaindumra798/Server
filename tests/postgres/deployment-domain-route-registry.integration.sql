@@ -104,6 +104,33 @@ BEGIN
     RAISE EXCEPTION 'Qualified ingress transport did not activate the route';
   END IF;
 
+
+  -- Runtime endpoint port changes invalidate the route version even when
+  -- the route remains otherwise eligible and active.
+  DECLARE
+    v_version_before bigint;
+    v_version_after bigint;
+  BEGIN
+    SELECT route_version INTO v_version_before
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    UPDATE public.deployments
+       SET runtime_local_port = 49154
+     WHERE id = v_deployment;
+    SELECT route_version, status INTO v_version_after, v_status
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    IF v_status <> 'active' OR v_version_after <> v_version_before + 1 THEN
+      RAISE EXCEPTION 'Loopback port change did not advance active route version exactly once';
+    END IF;
+    UPDATE public.deployments
+       SET runtime_local_port = 49152
+     WHERE id = v_deployment;
+    SELECT route_version INTO v_version_after
+      FROM public.deployment_domain_routes WHERE id = v_route;
+    IF v_version_after <> v_version_before + 2 THEN
+      RAISE EXCEPTION 'Restored loopback port did not advance route version';
+    END IF;
+  END;
+
   BEGIN
     PERFORM app_private.register_deployment_domain_route(v_unverified_domain, v_deployment);
     RAISE EXCEPTION 'Unverified domain was accepted';
