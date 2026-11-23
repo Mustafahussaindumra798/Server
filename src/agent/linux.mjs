@@ -42,6 +42,9 @@ export async function detectPodmanRuntime({
   const rootless = info?.host?.security?.rootless === true;
   const cgroupVersion = String(info?.host?.cgroupVersion || info?.host?.cgroupManagerVersion || "").toLowerCase();
   const version = String(info?.version?.Version || info?.version?.version || "").slice(0, 40) || null;
+  const graphDriver = String(info?.store?.graphDriverName || "").toLowerCase();
+  const storageQuotaConfigured = process.env.CLOUDEXIFY_STORAGE_QUOTA_READY === "true";
+  const storageQuotaReady = graphDriver === "overlay" && storageQuotaConfigured;
   let cgroupV2Available = false;
   try {
     const controllers = await readCgroupControllers();
@@ -56,6 +59,13 @@ export async function detectPodmanRuntime({
     rootless,
     cgroup_version: cgroupVersion || null,
     cgroup_v2_available: cgroupV2Available,
+    graph_driver: graphDriver || null,
+    storage_quota: {
+      available: graphDriver === "overlay",
+      ready: storageQuotaReady,
+      enforcement: graphDriver === "overlay" ? "podman-overlay-size" : null,
+      reason: storageQuotaReady ? null : graphDriver !== "overlay" ? "overlay-storage-driver-required" : "operator-storage-quota-attestation-required"
+    },
     reason: ready ? null : !rootless ? "podman_not_rootless" : "cgroup_v2_unavailable"
   };
 }
