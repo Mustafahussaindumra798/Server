@@ -8,6 +8,7 @@ const HOP_BY_HOP = new Set([
   "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-real-ip"
 ]);
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
+const MAX_TUNNEL_DATA_BYTES = 24 * 1024;
 const REQUEST_TIMEOUT_MS = 60000;
 
 export function normalizeIngressHostname(value) {
@@ -80,10 +81,22 @@ class TunnelDuplex extends Duplex {
   _write(chunk, _encoding, callback) {
     this.refreshTimeout();
     if (!this.route) { callback(new Error("Tunnel route is not connected.")); return; }
-    try {
-      if (this.route.write(chunk)) callback();
-      else if (!this.route.onDrain(callback)) callback(new Error("Tunnel route disconnected while writing."));
-    } catch (error) { callback(error); }
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    let offset = 0;
+    const writeNext = () => {
+      try {
+        while (offset < bytes.length) {
+          const part = bytes.subarray(offset, Math.min(offset + MAX_TUNNEL_DATA_BYTES, bytes.length));
+          offset += part.length;
+          if (!this.route.write(part)) {
+            if (!this.route.onDrain(writeNext)) callback(new Error("Tunnel route disconnected while writing."));
+            return;
+          }
+        }
+        callback();
+      } catch (error) { callback(error); }
+    };
+    writeNext();
   }
   _final(callback) { callback(); }
   _destroy(error, callback) {
