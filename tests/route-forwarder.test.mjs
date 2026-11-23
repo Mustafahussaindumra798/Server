@@ -98,6 +98,8 @@ test("forwarder applies gateway pause and resume to the exact active upstream st
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(forwarder.handle({ type: "route_pause", stream_id: "flow1" }), true);
   assert.equal(local.paused, true);
+  tunnel.emit("drain");
+  assert.equal(local.paused, true, "tunnel drain must not override a gateway pause");
   assert.equal(forwarder.handle({ type: "route_resume", stream_id: "flow1" }), true);
   assert.equal(local.paused, false);
   assert.equal(forwarder.handle({ type: "route_pause", stream_id: "unknown" }), false);
