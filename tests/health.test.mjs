@@ -29,7 +29,8 @@ const readySchema = {
   deployment_job_cancellation: true,
   deployment_health_check_path: true,
   deployment_health_check_timeout: true,
-  deployment_health_checked_at: true
+  deployment_health_checked_at: true,
+  deployment_health_reconciliation: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -80,7 +81,7 @@ test("health identifies migration 009 when deployment job orchestration is incom
 });
 
 test("health identifies migration 010 when deployment health-check columns are missing", async () => {
-  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_health_checked_at: false }] }) };
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_health_reconciliation: false }] }) };
   const res = response();
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
