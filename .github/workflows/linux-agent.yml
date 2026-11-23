@@ -6,7 +6,10 @@ on:
     paths:
       - "agent.mjs"
       - "src/agent/**"
+      - "src/ingress/**"
       - "tests/agent.test.mjs"
+      - "tests/tunnel.test.mjs"
+      - "tunnel-gateway.mjs"
       - "package.json"
       - "package-lock.json"
       - "deploy/systemd/**"
@@ -16,7 +19,10 @@ on:
     paths:
       - "agent.mjs"
       - "src/agent/**"
+      - "src/ingress/**"
       - "tests/agent.test.mjs"
+      - "tests/tunnel.test.mjs"
+      - "tunnel-gateway.mjs"
       - "package.json"
       - "package-lock.json"
       - "deploy/systemd/**"
