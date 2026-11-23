@@ -432,6 +432,7 @@ test("job creation rejects shell commands and non-empty diagnostic payloads", as
   const api = await startApi("owner"); t.after(api.close);
   for (const body of [
     { node_id: "30000000-0000-4000-8000-000000000001", type: "shell", payload: { command: "id" }, idempotency_key: "bad-shell-01" },
+    { node_id: "30000000-0000-4000-8000-000000000001", type: "deploy", payload: { image: "registry.example.com/demo@sha256:" + "a".repeat(64) }, idempotency_key: "bad-direct-deploy-01" },
     { node_id: "30000000-0000-4000-8000-000000000001", type: "probe", payload: { command: "id" }, idempotency_key: "bad-payload-01" }
   ]) {
     const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
