@@ -101,6 +101,53 @@ test("viewer cannot create an application", async (t) => {
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO applications")), false);
 });
 
+
+test("running deployment requires fresh telemetry and sufficient reserved capacity", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ application_id: appId, desired_state: "running" })
+  });
+  assert.equal(response.status, 201);
+  const placement = api.pool.calls.find((call) => call.sql.includes("capacity_admitted") || call.sql.includes("cpu_millicores") && call.sql.includes("FOR UPDATE OF node SKIP LOCKED"));
+  assert.ok(placement, "deployment placement must perform a locked capacity query");
+  const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO deployments"));
+  assert.equal(insert.params[3], "30000000-0000-4000-8000-000000000001");
+  assert.equal(insert.params[4], "running");
+  assert.equal(insert.params[5], "scheduled");
+  assert.deepEqual(JSON.parse(insert.params[6]), { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 });
+  assert.equal((await response.json()).runtime_enabled, false);
+});
+
+test("running deployment is rejected when no node has enough capacity", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const originalConnect = api.pool.connect;
+  api.pool.connect = async () => {
+    const client = await originalConnect(); const query = client.query.bind(client);
+    client.query = async (sql, params) => {
+      if (String(sql).includes("FOR UPDATE OF node SKIP LOCKED") && String(sql).includes("memory_total_bytes")) return { rows: [], rowCount: 0 };
+      return query(sql, params);
+    };
+    return client;
+  };
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ application_id: appId, desired_state: "running" })
+  });
+  assert.equal(response.status, 409);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO deployments")), false);
+});
+
+test("application resource requests reject unknown and out-of-range values", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/applications", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ name: "invalid-app", resource_requests: { cpu_millicores: 0, command: "unsafe" } })
+  });
+  assert.equal(response.status, 400);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO applications")), false);
+});
+
 test("operator can request a deployment and it is audited", async (t) => {
   const api = await startApi("operator");
   t.after(api.close);
