@@ -29,7 +29,7 @@ function validateDeploymentPayload(payload) {
 }
 
 export class PodmanWorkloadRuntime {
-  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000, cosignBinary = "cosign", trustKeyPath = "/etc/cloudexify/trust.pub", fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000, cosignBinary = "cosign", trustKeyPath = "/etc/cloudexify/trust.pub", fetchImpl = fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = () => Date.now() } = {}) {
     this.runCommand = runCommand;
     this.runtimeProbe = runtimeProbe;
     this.timeoutMs = timeoutMs;
@@ -37,6 +37,7 @@ export class PodmanWorkloadRuntime {
     this.trustKeyPath = trustKeyPath;
     this.fetchImpl = fetchImpl;
     this.sleep = sleep;
+    this.now = now;
   }
 
   async verifyImage(image) {
@@ -82,9 +83,9 @@ export class PodmanWorkloadRuntime {
       throw new Error("Container has no valid loopback health-check port mapping.");
     }
     const url = "http://127.0.0.1:" + localPort + payload.health_check_path;
-    const deadline = Date.now() + payload.health_check_timeout_seconds * 1000;
+    const deadline = this.now() + payload.health_check_timeout_seconds * 1000;
     let lastError = "health endpoint did not return HTTP 2xx";
-    while (Date.now() < deadline) {
+    while (this.now() < deadline) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2500);
       try {
@@ -96,7 +97,7 @@ export class PodmanWorkloadRuntime {
       } finally {
         clearTimeout(timer);
       }
-      await this.sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
+      await this.sleep(Math.min(1000, Math.max(0, deadline - this.now())));
     }
     throw new Error("Application health check failed after " + payload.health_check_timeout_seconds + " seconds: " + lastError);
   }
