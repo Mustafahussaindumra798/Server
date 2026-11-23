@@ -10,7 +10,8 @@
     "start": "node server.mjs",
     "dev": "node server.mjs",
     "test": "node --test",
-    "agent": "node agent.mjs"
+    "agent": "node agent.mjs",
+    "tunnel-gateway": "node tunnel-gateway.mjs"
   },
   "dependencies": {
     "pg": "8.16.3"
