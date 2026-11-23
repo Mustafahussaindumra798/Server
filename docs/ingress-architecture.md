@@ -73,11 +73,18 @@ The database function `app_private.register_deployment_domain_route(domain_claim
 
 1. Add tenant-scoped domain claims and verification challenge lifecycle with database constraints, RLS, audit events and integration tests.
 2. Add the fail-closed route-intent registry with tenant-bound domain/deployment/node relationships, eligibility checks, lifecycle withdrawal and PostgreSQL integration tests.
-3. Implement per-node outbound mTLS tunnel and a restricted loopback forwarder; qualify reconnect, revocation and node identity binding.
-4. Implement gateway route synchronization, strict host matching, request limits, route versioning and fail-closed behavior.
-5. Add certificate issuance, renewal, rotation and expiry monitoring after DNS/domain verification is operational.
-6. Run security tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
-7. Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
+3. [x] Implement per-node outbound mTLS control transport, node identity binding, database-backed certificate revocation checks and bounded reconnect behavior.
+4. Implement a signed/authorized route-grant protocol and restricted node-side loopback forwarder; never accept arbitrary host, port or upstream values.
+5. Implement gateway route synchronization, strict host matching, request limits, route versioning and fail-closed behavior.
+6. Add automated certificate issuance, renewal, rotation and expiry monitoring after DNS/domain verification is operational.
+7. Run security tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
+8. Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
+
+## mTLS transport implementation boundary
+
+Migration `017_node_tunnel_certificates.sql` adds per-node certificate fingerprint records and a database authorization function. `src/agent/tunnel.mjs` provides an outbound TLS 1.3 client with exact node-UUID certificate CN validation, gateway hostname validation, private ALPN, bounded reconnect backoff and terminal handling for gateway authorization rejection. `src/ingress/mtls-tunnel.mjs` provides the separate gateway-side mTLS listener, node identity binding, database-backed certificate authorization and periodic revocation/heartbeat rechecks. `tunnel-gateway.mjs` runs this listener on an explicit private interface; wildcard binds are rejected. The protocol accepts only bounded hello/welcome/ping/pong/error control frames.
+
+The transport has no customer data plane. It does not accept route grants, open local sockets, forward HTTP/TCP, or make a route active. Certificate issuance and rotation are currently operator-managed. The listener must remain private and forwarding remains disabled.
 
 ## Explicit non-goals and release gates
 
