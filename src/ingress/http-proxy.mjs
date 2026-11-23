@@ -182,6 +182,7 @@ export function createIngressRequestHandler({
          WHERE claim.hostname = $1
            AND route.status = 'active'
            AND route.reason_code = 'transport_ready'
+           AND node.ingress_draining = false
            AND claim.status = 'verified'
            AND tenant.status = 'active'
            AND application.desired_state = 'running'
