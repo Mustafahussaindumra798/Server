@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, rootless Podman execution, Cosign verification and HTTP health gates with bounded failure handling are implemented and CI-verified (latest health-gate CI run #341 passed). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, storage quotas, durable reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates with bounded failure handling are implemented and CI-verified (latest PostgreSQL integration CI run #364 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, storage quotas, durable reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
