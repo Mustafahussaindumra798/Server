@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, chmod, lstat, symlink, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getLinuxIdentity, getCapabilities, detectPodmanRuntime, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
+import { getLinuxIdentity, getCapabilities, detectPodmanRuntime, detectCosignVerifier, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
 import { executeDiagnostic, executeWorkloadJob, enrollNode, runAgent } from "../agent.mjs";
 
@@ -270,6 +270,29 @@ test("Podman runtime probe handles missing binary and malformed output without t
   const malformed = await detectPodmanRuntime({ runCommand: async () => ({ stdout: "not-json" }) });
   assert.equal(malformed.available, false);
   assert.equal(malformed.ready, false);
+});
+
+test("Cosign verifier requires the binary and the configured trusted public key", async () => {
+  let accessed = null;
+  const ready = await detectCosignVerifier({
+    runCommand: async (command, args, options) => {
+      assert.equal(command, "cosign");
+      assert.deepEqual(args, ["version"]);
+      assert.equal(options.timeout, 3000);
+      return { stdout: "cosign version" };
+    },
+    trustKeyPath: "/etc/cloudexify/trust.pub",
+    accessFile: async (file) => { accessed = file; }
+  });
+  assert.deepEqual(ready, { available: true, ready: true, trust_key_configured: true });
+  assert.equal(accessed, "/etc/cloudexify/trust.pub");
+
+  const missing = await detectCosignVerifier({
+    runCommand: async () => { throw new Error("cosign missing"); },
+    accessFile: async () => { throw new Error("must not access key"); }
+  });
+  assert.equal(missing.ready, false);
+  assert.equal(missing.trust_key_configured, false);
 });
 
 test("agent advertises diagnostics and detected runtime without claiming workload execution", async () => {
