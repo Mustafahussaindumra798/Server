@@ -126,6 +126,41 @@ test("gateway closes an established tunnel after certificate authorization is re
   assert.ok(authorizationCalls >= 2);
 });
 
+test("gateway replaces an older session when the same node reconnects", async () => {
+  let connectionHandler;
+  class FakeServer extends EventEmitter {}
+  class FakeSocket extends EventEmitter {
+    constructor() { super(); this.authorized = true; this.alpnProtocol = GATEWAY_ALPN; this.destroyed = false; this.writes = []; }
+    getPeerCertificate() {
+      return { fingerprint256: fingerprint.match(/.{2}/g).join(":"), serialNumber: "01AB", subject: { CN: nodeId } };
+    }
+    write(frame) { this.writes.push(JSON.parse(String(frame))); return true; }
+    end() { this.destroyed = true; this.emit("close"); }
+    destroy() { this.destroyed = true; this.emit("close"); }
+  }
+  createNodeTunnelServer({
+    tlsOptions: { key: "private", cert: "public", ca: "client-ca" },
+    authorizeCertificate: async () => true,
+    createServer(_options, callback) { connectionHandler = callback; return new FakeServer(); }
+  });
+  const waitFor = async (predicate) => {
+    for (let i = 0; i < 100; i += 1) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    throw new Error("Timed out waiting for node tunnel replacement.");
+  };
+  const first = new FakeSocket();
+  connectionHandler(first);
+  first.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\n"));
+  await waitFor(() => first.writes.some((message) => message.type === "welcome"));
+
+  const second = new FakeSocket();
+  connectionHandler(second);
+  second.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\n"));
+  await waitFor(() => second.writes.some((message) => message.type === "welcome") && first.destroyed);
+});
+
 test("node tunnel reconnects after a dropped transport and stops cleanly", async () => {
   const sockets = [];
   const states = [];
