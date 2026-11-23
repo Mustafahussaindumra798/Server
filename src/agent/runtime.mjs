@@ -6,6 +6,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const IMAGE_DIGEST = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?\/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$/;
 const MIN_MEMORY_BYTES = 16 * 1024 * 1024;
 const MAX_MEMORY_BYTES = 1024 * 1024 * 1024 * 1024;
+const MIN_DISK_BYTES = 16 * 1024 * 1024;
+const MAX_DISK_BYTES = 1024 * 1024 * 1024 * 1024;
 
 function validateDeploymentPayload(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Deployment payload must be an object.");
@@ -18,8 +20,9 @@ function validateDeploymentPayload(payload) {
   if (!resources || typeof resources !== "object" || Array.isArray(resources) ||
       Object.keys(resources).some((key) => !["cpu_millicores", "memory_bytes"].includes(key)) ||
       !Number.isInteger(resources.cpu_millicores) || resources.cpu_millicores < 50 || resources.cpu_millicores > 64000 ||
-      !Number.isSafeInteger(resources.memory_bytes) || resources.memory_bytes < MIN_MEMORY_BYTES || resources.memory_bytes > MAX_MEMORY_BYTES) {
-    throw new Error("Deployment CPU and memory requests are invalid or outside supported bounds.");
+      !Number.isSafeInteger(resources.memory_bytes) || resources.memory_bytes < MIN_MEMORY_BYTES || resources.memory_bytes > MAX_MEMORY_BYTES ||
+      !Number.isSafeInteger(resources.disk_bytes) || resources.disk_bytes < MIN_DISK_BYTES || resources.disk_bytes > MAX_DISK_BYTES) {
+    throw new Error("Deployment CPU, memory and disk requests are invalid or outside supported bounds.");
   }
   const healthCheckPath = payload.health_check_path == null ? "/" : payload.health_check_path;
   const healthCheckTimeout = payload.health_check_timeout_seconds == null ? 30 : payload.health_check_timeout_seconds;
@@ -67,6 +70,9 @@ export class PodmanWorkloadRuntime {
     const probe = await this.runtimeProbe();
     if (!probe?.ready || probe.rootless !== true || probe.cgroup_version !== "v2" || probe.cgroup_v2_available !== true) {
       throw new Error("Node is not qualified for rootless Podman workload execution.");
+    }
+    if (probe.storage_quota?.ready !== true) {
+      throw new Error("Node is not qualified for enforced per-container storage quotas.");
     }
   }
 
@@ -139,12 +145,13 @@ export class PodmanWorkloadRuntime {
       "--publish", "127.0.0.1::" + payload.container_port + "/tcp",
       "--cpus=" + String(payload.resources.cpu_millicores / 1000),
       "--memory=" + String(payload.resources.memory_bytes),
+      "--storage-opt=size=" + String(payload.resources.disk_bytes),
       "--pids-limit=128",
       "--read-only",
       "--cap-drop=ALL",
       "--security-opt=no-new-privileges",
       "--user=10001:10001",
-      "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m",
+      "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=" + String(Math.min(64 * 1024 * 1024, payload.resources.disk_bytes)) + "b",
       payload.image
     ];
     try {
