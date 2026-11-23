@@ -32,7 +32,8 @@ const readySchema = {
   deployment_health_checked_at: true,
   deployment_health_reconciliation: true,
   deployment_stop_reconciliation: true,
-  deployment_restart_reconciliation: true
+  deployment_restart_reconciliation: true,
+  runtime_reconciliation_function: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -49,7 +50,8 @@ test("health reports ready only when the existing control-plane schema is comple
     runtime_capabilities: "ready",
     deployment_job_orchestration: "ready",
     deployment_health_checks: "ready",
-    deployment_lifecycle_jobs: "ready"
+    deployment_lifecycle_jobs: "ready",
+    durable_runtime_reconciliation: "ready"
   });
 });
 
@@ -97,6 +99,14 @@ test("health identifies migration 011 when stop/restart reconciliation is missin
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["011_deployment_lifecycle_jobs"]);
+});
+
+test("health identifies migration 012 when durable runtime reconciliation is missing", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, runtime_reconciliation_function: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["012_durable_runtime_reconciliation"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
