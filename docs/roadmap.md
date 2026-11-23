@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission and safe node placement are being implemented; actual workload execution remains disabled. Both Android/Termux devices have enrolled and connected (user-confirmed). Latest code changes are in `main`; production deployment and manual end-to-end QA must be verified before marking this phase complete.
+**Current stage:** Phase 3 — resource admission, application desired-state controls and queued deployment cancellation are implemented in the control plane. Actual workload execution remains disabled until a qualified node runtime is implemented. Both Android/Termux devices have enrolled and connected (user-confirmed). Production deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -100,6 +100,12 @@
 - [ ] End-to-end multi-node job claim/ack test on both Android devices
 - [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/agent telemetry implemented; PostgreSQL + application CI passed in run #217)
 - [x] Capacity reservations for active deployment revisions
+- [x] Owner/Admin application desired-state API for running, stopped and suspended values, with tenant-scoped row locking and audit events
+- [x] Operator+ queued/scheduled deployment cancellation with safe terminal status and audit event; active workload stop fails closed until runtime support exists
+- [x] Dashboard controls for application desired state and queued deployment cancellation
+- [x] API tests for state transitions, authorization and audit events (CI run #229 passed; dashboard CI run #230 passed)
+- [x] Health endpoint inspects existing PostgreSQL catalog metadata to report whether required schema and migration 007 are present, without exposing connection details
+- [x] Health endpoint automated tests (PostgreSQL integration CI run #232 passed)
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
