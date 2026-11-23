@@ -175,8 +175,10 @@ export async function withNodeRouteAuthorization(pool, authorization) {
           ON node.id = route.node_id AND node.tenant_id = route.tenant_id
        WHERE route.id = $1
          AND route.node_id = $2
-         AND route.status = 'pending_transport'
-         AND route.reason_code = 'transport_not_qualified'
+         AND route.status = 'active'
+         AND route.reason_code = 'transport_ready'
+         AND node.capabilities_json->>'ingress_tunnel' = 'true'
+         AND node.capabilities_json->>'loopback_forwarder' = 'true'
          AND claim.status = 'verified'
          AND tenant.status = 'active'
          AND application.desired_state = 'running'
