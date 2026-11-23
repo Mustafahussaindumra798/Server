@@ -185,8 +185,16 @@ function nodeRows(nodes) {
     const memory = resources.memory_total_bytes == null ? "—" : formatBytes(resources.memory_used_bytes) + " / " + formatBytes(resources.memory_total_bytes);
     const battery = resources.battery_percent == null ? "" : " · " + Number(resources.battery_percent).toFixed(0) + "% battery";
     const temperature = resources.temperature_c == null ? "" : " · " + Number(resources.temperature_c).toFixed(1) + "°C";
-    const actions = canManage && node.status === "pending"
-      ? '<div class="node-actions"><button type="button" class="small-action" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="small-action" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button></div>'
+    const approvalActions = canManage && node.status === "pending"
+      ? '<button type="button" class="small-action" data-node-action="approve" data-node-id="' + escapeHtml(node.id) + '">Approve</button><button type="button" class="small-action" data-node-action="reject" data-node-id="' + escapeHtml(node.id) + '">Reject</button>'
+      : "";
+    const ingressAction = canManage && node.ingress_managed
+      ? node.ingress_draining
+        ? (node.ingress_ready ? '<button type="button" class="small-action" data-node-ingress-state="active" data-node-id="' + escapeHtml(node.id) + '">Resume ingress</button>' : '<small class="subcell">Ingress draining · node not ready to resume</small>')
+        : '<button type="button" class="small-action" data-node-ingress-state="draining" data-node-id="' + escapeHtml(node.id) + '">Drain ingress</button>'
+      : "";
+    const actions = approvalActions || ingressAction
+      ? '<div class="node-actions">' + approvalActions + ingressAction + '</div>'
       : "";
     return '<tr class="node-row" tabindex="0" data-node-open="' + escapeHtml(node.id) + '"><td><strong>' + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></strong></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
@@ -461,16 +469,27 @@ async function init() {
     const button = event.target.closest("[data-node-action]");
     if (!button || button.disabled) return;
     const action = button.dataset.nodeAction;
+    const ingressState = button.dataset.nodeIngressState;
     const nodeId = button.dataset.nodeId;
-    if (!["approve", "reject"].includes(action) || !nodeId) return;
+    if (!nodeId) return;
+    if (ingressState && !["active", "draining"].includes(ingressState)) return;
+    if (!ingressState && !["approve", "reject"].includes(action)) return;
     if (action === "reject" && !window.confirm("Reject this node? Its current credentials will be revoked and it cannot reconnect.")) return;
+    if (ingressState === "draining" && !window.confirm("Stop accepting new customer requests on this node and drain existing ingress connections?")) return;
     button.disabled = true;
     try {
-      await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/nodes/" + encodeURIComponent(nodeId) + "/" + action, { method: "POST" });
-      dashboardMessage(action === "approve" ? "Node approved." : "Node rejected and its credentials revoked.");
+      if (ingressState) {
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/nodes/" + encodeURIComponent(nodeId) + "/state", {
+          method: "POST", body: JSON.stringify({ ingress_state: ingressState })
+        });
+        dashboardMessage(ingressState === "draining" ? "Node ingress is draining; new requests are blocked." : "Node ingress resumed.");
+      } else {
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/nodes/" + encodeURIComponent(nodeId) + "/" + action, { method: "POST" });
+        dashboardMessage(action === "approve" ? "Node approved." : "Node rejected and its credentials revoked.");
+      }
       await refreshData();
     } catch (error) {
-      dashboardMessage(error.message || "Unable to update node approval.", true);
+      dashboardMessage(error.message || "Unable to update node state.", true);
       button.disabled = false;
     }
   });
