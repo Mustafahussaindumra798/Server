@@ -108,7 +108,7 @@ The certificate must be currently valid and its SAN/wildcard coverage must match
 
 Nodes advertise the two ingress capability flags only when all mTLS tunnel settings and the route-grant public key are configured. The gateway still requires the node's mTLS session to be currently connected. The database route is pinned to its deployment's target node; this implementation does not yet perform multi-node failover or cross-node workload scheduling. If that node is disconnected or the route is not active, requests fail closed rather than selecting an unrelated node.
 
-**Important:** This is an implementation milestone, not production authorization to receive customer traffic. Do not set the public-ingress flag or expose port 443 until migrations 018 and 019 have been reviewed and applied to the correct Server database, gateway TLS certificates and firewall are provisioned, the node is a qualified Debian/Linux workload host, and end-to-end security/load/failure tests have passed.
+**Important:** This is an implementation milestone, not production authorization to receive customer traffic. Do not set the public-ingress flag or expose port 443 until migrations 018, 019 and 020 have been reviewed and applied to the correct Server database, gateway TLS certificates and firewall are provisioned, the node is a qualified Debian/Linux workload host, and end-to-end security/load/failure tests have passed.
 
 ## Current limitations
 
