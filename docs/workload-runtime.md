@@ -47,7 +47,7 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 - Stop checks the resulting state and is idempotent for an absent or stopped container.
 - Restart requires an existing container and verifies that it is running afterward.
 - A workload job received by a node without rootless Podman/cgroup-v2 qualification is terminally rejected rather than retried indefinitely.
-- A process running is not equivalent to an application passing its health check. Results explicitly state that health has not been verified.
+- A process running is not equivalent to an application passing its health check; only the explicit successful HTTP probe result can transition a deployment to `healthy`.
 
 ## Release blockers before customer workloads
 
