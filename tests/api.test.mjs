@@ -501,6 +501,22 @@ test("operator automatically schedules work across the eligible node pool", asyn
   assert.equal(api.pool.calls.some((call) => call.sql.includes("pg_advisory_xact_lock")), true);
 });
 
+test("job idempotency lock is acquired before lookup and node placement", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/jobs", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ type: "probe", payload: {}, idempotency_key: "same-request-key-01" })
+  });
+  assert.equal(response.status, 201);
+  const lockIndex = api.pool.calls.findIndex((call) => call.sql.includes("pg_advisory_xact_lock"));
+  const lookupIndex = api.pool.calls.findIndex((call) => call.sql.startsWith("SELECT id, tenant_id, node_id, type, payload_json AS payload, status, attempt_count, max_attempts, created_at FROM jobs WHERE tenant_id = $1 AND idempotency_key = $2"));
+  const placementIndex = api.pool.calls.findIndex((call) => call.sql.includes("AS active_jobs") && call.sql.includes("FOR UPDATE OF node SKIP LOCKED"));
+  const insertIndex = api.pool.calls.findIndex((call) => call.sql.startsWith("INSERT INTO jobs") && !call.sql.includes("deployment_id"));
+  assert.ok(lockIndex >= 0 && lookupIndex > lockIndex && placementIndex > lookupIndex && insertIndex > placementIndex,
+    "tenant/key advisory lock must serialize requests before lookup, placement and insertion");
+});
+
 test("automatic scheduling returns conflict when the workspace has no eligible nodes", async (t) => {
   const api = await startApi("operator"); t.after(api.close);
   const originalConnect = api.pool.connect;
