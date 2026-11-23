@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getLinuxIdentity, getCapabilities, detectPodmanRuntime, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
-import { executeDiagnostic, enrollNode, runAgent } from "../agent.mjs";
+import { executeDiagnostic, executeWorkloadJob, enrollNode, runAgent } from "../agent.mjs";
 
 const validState = {
   node_id: "30000000-0000-4000-8000-000000000001",
@@ -24,6 +24,28 @@ test("Linux identity accepts only supported 64-bit architectures", () => {
   assert.throws(() => getLinuxIdentity("android", "arm64", {}), /Linux or Android running Termux/);
   assert.throws(() => getLinuxIdentity("win32", "x64"), /Linux or Android running Termux/);
   assert.throws(() => getLinuxIdentity("linux", "ia32"), /Unsupported Linux\/Android architecture/);
+});
+
+test("agent dispatches typed deploy, stop and restart jobs to the workload runtime", async () => {
+  const calls = [];
+  const runtime = {
+    async deploy(payload) { calls.push(["deploy", payload]); return { result_code: "started" }; },
+    async stop(id) { calls.push(["stop", id]); return { result_code: "stopped" }; },
+    async restart(id) { calls.push(["restart", id]); return { result_code: "restarted" }; }
+  };
+  const deploymentId = "40000000-0000-4000-8000-000000000001";
+  const deployPayload = { deployment_id: deploymentId, image: "immutable" };
+  assert.equal((await executeWorkloadJob({ job_type: "deploy", payload: deployPayload }, { runtime })).result_code, "started");
+  assert.equal((await executeWorkloadJob({ job_type: "stop", payload: { deployment_id: deploymentId } }, { runtime })).result_code, "stopped");
+  assert.equal((await executeWorkloadJob({ job_type: "restart", payload: { deployment_id: deploymentId } }, { runtime })).result_code, "restarted");
+  assert.deepEqual(calls, [["deploy", deployPayload], ["stop", deploymentId], ["restart", deploymentId]]);
+});
+
+test("agent rejects malformed workload jobs and never accepts arbitrary command payloads", async () => {
+  const runtime = { async deploy() { throw new Error("must not execute"); }, async stop() {}, async restart() {} };
+  await assert.rejects(executeWorkloadJob({ job_type: "exec", payload: { command: "id" } }, { runtime }), /Unsupported or malformed/);
+  await assert.rejects(executeWorkloadJob({ job_type: "stop", payload: { deployment_id: "id", command: "id" } }, { runtime }), /payload is malformed/);
+  await assert.rejects(executeWorkloadJob({ job_type: "deploy", payload: {} }), /runtime is not configured/);
 });
 
 test("control-plane URL requires HTTPS except loopback development", () => {
