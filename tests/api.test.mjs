@@ -159,7 +159,7 @@ test("operator can request a deployment and it is audited", async (t) => {
     body: JSON.stringify({ application_id: appId, desired_state: "running" })
   });
   assert.equal(response.status, 201);
-  assert.equal((await response.json()).deployment.status, "queued");
+  assert.equal((await response.json()).deployment.status, "scheduled");
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events")), true);
 });
 
