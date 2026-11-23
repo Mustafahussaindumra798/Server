@@ -153,3 +153,48 @@ test("gateway resolves a pending drain as unsuccessful when the node disconnects
   assert.equal(manager.hasNode(nodeId), false);
   assert.equal(manager.activeStreams, 0);
 });
+test("gateway makes concurrent drain requests share one drain operation", async () => {
+  let timeoutCount = 0;
+  let timeoutCallback;
+  const manager = createRouteStreamManager({
+    setTimeoutImpl(callback) {
+      timeoutCount += 1;
+      timeoutCallback = callback;
+      return { unref() {} };
+    },
+    clearTimeoutImpl() {}
+  });
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  const stream = await pending;
+
+  const firstDrain = manager.drainNode(nodeId, { timeoutMs: 5000 });
+  const secondDrain = manager.drainNode(nodeId, { timeoutMs: 10000 });
+  assert.equal(timeoutCount, 1);
+  stream.close();
+  assert.deepEqual(await firstDrain, { drained: true, activeStreams: 0 });
+  assert.deepEqual(await secondDrain, { drained: true, activeStreams: 0 });
+});
+
+test("gateway handles a synchronously firing injected drain timer", async () => {
+  const manager = createRouteStreamManager({
+    setTimeoutImpl(callback) {
+      callback();
+      return { unref() {} };
+    },
+    clearTimeoutImpl() {}
+  });
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  await pending;
+
+  assert.deepEqual(await manager.drainNode(nodeId), { drained: false, activeStreams: 1 });
+  assert.equal(manager.hasNode(nodeId), false);
+  assert.equal(manager.activeStreams, 0);
+});
