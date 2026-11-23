@@ -33,7 +33,9 @@ const readySchema = {
   deployment_health_reconciliation: true,
   deployment_stop_reconciliation: true,
   deployment_restart_reconciliation: true,
-  runtime_reconciliation_function: true
+  runtime_reconciliation_function: true,
+  deployment_automatic_rollback: true,
+  deployment_rollback_reconciliation: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -51,7 +53,8 @@ test("health reports ready only when the existing control-plane schema is comple
     deployment_job_orchestration: "ready",
     deployment_health_checks: "ready",
     deployment_lifecycle_jobs: "ready",
-    durable_runtime_reconciliation: "ready"
+    durable_runtime_reconciliation: "ready",
+    automatic_deployment_rollback: "ready"
   });
 });
 
@@ -107,6 +110,14 @@ test("health identifies migration 012 when durable runtime reconciliation is mis
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["012_durable_runtime_reconciliation"]);
+});
+
+test("health identifies migration 013 when automatic rollback is not installed", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_automatic_rollback: false, deployment_rollback_reconciliation: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["013_automatic_deployment_rollback"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
