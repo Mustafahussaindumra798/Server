@@ -69,6 +69,7 @@ test("gateway tunnel listener enforces TLS 1.3, client certificates and the priv
     createServer(config) { options = config; return fakeServer; }
   });
   assert.equal(server, fakeServer);
+  assert.equal(server.maxConnections, 1000);
   assert.equal(options.requestCert, true);
   assert.equal(options.rejectUnauthorized, true);
   assert.equal(options.minVersion, "TLSv1.3");
