@@ -49,13 +49,13 @@ export function createHealthHandler(databasePool) {
           ) AS deployment_container_port,
           EXISTS (
             SELECT 1 FROM pg_trigger
-            WHERE tgrelid = 'public.jobs'::regclass
+            WHERE tgrelid = to_regclass('public.jobs')
               AND tgname = 'jobs_reconcile_deployment_status'
               AND NOT tgisinternal
           ) AS deployment_job_reconciliation,
           EXISTS (
             SELECT 1 FROM pg_trigger
-            WHERE tgrelid = 'public.deployments'::regclass
+            WHERE tgrelid = to_regclass('public.deployments')
               AND tgname = 'deployments_cancel_queued_jobs'
               AND NOT tgisinternal
           ) AS deployment_job_cancellation,
