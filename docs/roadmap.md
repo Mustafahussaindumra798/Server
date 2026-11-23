@@ -100,6 +100,7 @@
 - [x] Atomic node row locks with `SKIP LOCKED` to distribute concurrent submissions
 - [x] Tenant-wide idempotency serialization so retries retain the original node assignment
 - [x] API regression coverage verifies tenant/key advisory locking precedes idempotency lookup, scheduler placement and job insertion (CI verification pending)
+- [x] Two-session PostgreSQL integration verifies concurrent node pollers claim distinct jobs under row locking (CI verification pending)
 - [ ] Load-aware capacity weights and fairness qualification under concurrent physical-node load
 - [ ] End-to-end multi-node job claim/ack test on both Android devices
 - [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/agent telemetry implemented; PostgreSQL + application CI passed in run #217)
