@@ -76,7 +76,7 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
       port: server.address().port,
       path: "/hello?from=test",
       method: "POST",
-      headers: { host: "app.example.test" }
+      headers: { host: "app.example.test", "content-length": String(70 * 1024) }
     }, (res) => {
       const chunks = [];
       res.on("data", (chunk) => chunks.push(chunk));
