@@ -390,6 +390,105 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         const resource = domainRoute ? "domains" : route[2];
         const role = await getMembership(client, tenantId, user.id);
 
+        if (resource === "domains" && request.method === "GET" && !domainRoute[2]) {
+          requirePermission(role, "read");
+          const domains = await client.query(
+            "SELECT id, hostname, status, verified_at, created_at, updated_at FROM domain_claims WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            [tenantId]
+          );
+          return { status: 200, body: { domains: domains.rows } };
+        }
+
+        if (resource === "domains" && domainRoute[2] && request.method === "GET") {
+          requirePermission(role, "read");
+          const domainId = requireUuid(domainRoute[2], "domain_id");
+          const domain = await client.query(
+            "SELECT claim.id, claim.hostname, claim.status, claim.verified_at, claim.created_at, challenge.record_name, challenge.expires_at AS challenge_expires_at FROM domain_claims AS claim LEFT JOIN LATERAL (SELECT record_name, expires_at FROM domain_verification_challenges WHERE domain_claim_id = claim.id AND tenant_id = claim.tenant_id ORDER BY created_at DESC LIMIT 1) AS challenge ON true WHERE claim.id = $1 AND claim.tenant_id = $2",
+            [domainId, tenantId]
+          );
+          if (!domain.rows[0]) { const error = new Error("Domain claim not found."); error.status = 404; throw error; }
+          return { status: 200, body: { domain: domain.rows[0] } };
+        }
+
+        if (resource === "domains" && !domainRoute[2] && request.method === "POST") {
+          requirePermission(role, "manageDomains");
+          const body = await readJson(request);
+          const hostname = normalizeHostname(body.hostname);
+          const challenge = makeDomainChallenge();
+          const claim = await client.query(
+            "INSERT INTO domain_claims (tenant_id, hostname, created_by) VALUES ($1, $2, $3) RETURNING id, hostname, status, created_at",
+            [tenantId, hostname, user.id]
+          );
+          const claimRow = claim.rows[0];
+          if (!claimRow) { const error = new Error("Domain claim could not be created."); error.status = 503; throw error; }
+          const challengeRow = await client.query(
+            "INSERT INTO domain_verification_challenges (domain_claim_id, tenant_id, token_hash, record_name, expires_at) VALUES ($1, $2, $3, $4, now() + interval '30 minutes') RETURNING id, record_name, expires_at",
+            [claimRow.id, tenantId, challenge.tokenHash, "_cloudexify-verify." + hostname]
+          );
+          if (!challengeRow.rows[0]) { const error = new Error("DNS verification challenge could not be created."); error.status = 503; throw error; }
+          await audit(client, tenantId, user.id, "domain.claim.created", "domain_claim", claimRow.id, { hostname });
+          return { status: 201, body: { domain: claimRow, verification: { record_type: "TXT", record_name: challengeRow.rows[0].record_name, record_value: "cloudexify-verification=" + challenge.token, expires_at: challengeRow.rows[0].expires_at, token_display: "shown_once" } } };
+        }
+
+        if (resource === "domains" && domainRoute[2] && domainRoute[3] === "challenge" && request.method === "POST") {
+          requirePermission(role, "manageDomains");
+          const domainId = requireUuid(domainRoute[2], "domain_id");
+          const claim = await client.query(
+            "SELECT id, hostname, status FROM domain_claims WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [domainId, tenantId]
+          );
+          if (!claim.rows[0]) { const error = new Error("Domain claim not found."); error.status = 404; throw error; }
+          if (claim.rows[0].status !== "pending_verification") { const error = new Error("Only pending domain claims can receive a new challenge."); error.status = 409; throw error; }
+          await client.query("SELECT app_private.revoke_expired_domain_challenges($1)", [domainId]);
+          const challenge = makeDomainChallenge();
+          const inserted = await client.query(
+            "INSERT INTO domain_verification_challenges (domain_claim_id, tenant_id, token_hash, record_name, expires_at) VALUES ($1, $2, $3, $4, now() + interval '30 minutes') RETURNING record_name, expires_at",
+            [domainId, tenantId, challenge.tokenHash, "_cloudexify-verify." + claim.rows[0].hostname]
+          );
+          await audit(client, tenantId, user.id, "domain.challenge.created", "domain_claim", domainId, { hostname: claim.rows[0].hostname });
+          return { status: 201, body: { verification: { record_type: "TXT", record_name: inserted.rows[0].record_name, record_value: "cloudexify-verification=" + challenge.token, expires_at: inserted.rows[0].expires_at, token_display: "shown_once" } } };
+        }
+
+        if (resource === "domains" && domainRoute[2] && domainRoute[3] === "verify" && request.method === "POST") {
+          requirePermission(role, "manageDomains");
+          const domainId = requireUuid(domainRoute[2], "domain_id");
+          const claim = await client.query(
+            "SELECT id, hostname, status FROM domain_claims WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [domainId, tenantId]
+          );
+          if (!claim.rows[0]) { const error = new Error("Domain claim not found."); error.status = 404; throw error; }
+          if (claim.rows[0].status === "verified") return { status: 200, body: { verified: true, hostname: claim.rows[0].hostname, already_verified: true } };
+          if (claim.rows[0].status !== "pending_verification") { const error = new Error("This domain claim cannot be verified in its current state."); error.status = 409; throw error; }
+          const challenge = await client.query(
+            "SELECT id, token_hash, record_name, expires_at FROM domain_verification_challenges WHERE domain_claim_id = $1 AND tenant_id = $2 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at DESC LIMIT 1",
+            [domainId, tenantId]
+          );
+          if (!challenge.rows[0]) { const error = new Error("No active DNS challenge exists. Create a new challenge first."); error.status = 409; throw error; }
+          let txtRecords;
+          try { txtRecords = await resolveTxtFn(challenge.rows[0].record_name); }
+          catch (dnsError) {
+            if (dnsError?.code === "ENODATA" || dnsError?.code === "ENOTFOUND") return { status: 200, body: { verified: false, reason: "dns_record_not_found", hostname: claim.rows[0].hostname } };
+            const error = new Error("DNS TXT lookup is temporarily unavailable."); error.status = 503; throw error;
+          }
+          const observedTokens = (Array.isArray(txtRecords) ? txtRecords : [])
+            .filter(Array.isArray)
+            .map((parts) => parts.join(""))
+            .filter((value) => value.startsWith("cloudexify-verification="))
+            .map((value) => value.slice("cloudexify-verification=".length))
+            .filter((value) => /^[A-Za-z0-9_-]{43}$/.test(value));
+          const observedHashes = new Set(observedTokens.map((value) => createHash("sha256").update(value, "utf8").digest("hex")));
+          if (!observedHashes.has(challenge.rows[0].token_hash)) {
+            return { status: 200, body: { verified: false, reason: "dns_record_mismatch", hostname: claim.rows[0].hostname } };
+          }
+          const verified = await client.query(
+            "SELECT app_private.verify_domain_claim($1, $2) AS verified",
+            [domainId, challenge.rows[0].token_hash]
+          );
+          if (!verified.rows[0]?.verified) return { status: 200, body: { verified: false, reason: "challenge_expired_or_consumed", hostname: claim.rows[0].hostname } };
+          await audit(client, tenantId, user.id, "domain.verification.requested", "domain_claim", domainId, { hostname: claim.rows[0].hostname });
+          return { status: 200, body: { verified: true, hostname: claim.rows[0].hostname } };
+        }
+
         if (resource === "overview" && request.method === "GET") {
           requirePermission(role, "read");
           // One database round trip for the complete dashboard snapshot.
