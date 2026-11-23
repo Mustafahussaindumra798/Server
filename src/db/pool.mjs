@@ -1,15 +1,19 @@
 import { Pool } from "pg";
 
-export function createDatabasePool(connectionString, { max = process.env.VERCEL ? 1 : 10 } = {}) {
+export function createDatabasePool(connectionString, { max = process.env.VERCEL ? 1 : 10, queryTimeoutMillis = 0 } = {}) {
   if (!connectionString) throw new Error("DATABASE_URL is required.");
   if (!Number.isInteger(max) || max < 1 || max > 10) {
     throw new Error("Database pool max must be an integer between 1 and 10.");
+  }
+  if (!Number.isInteger(queryTimeoutMillis) || queryTimeoutMillis < 0 || queryTimeoutMillis > 30000) {
+    throw new Error("Database query timeout must be between 0 and 30000 milliseconds.");
   }
   return new Pool({
     connectionString,
     max,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 10000,
+    ...(queryTimeoutMillis ? { query_timeout: queryTimeoutMillis } : {}),
     application_name: "cloudexify-control-plane"
   });
 }
