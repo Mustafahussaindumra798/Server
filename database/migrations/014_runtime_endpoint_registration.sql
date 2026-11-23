@@ -148,7 +148,7 @@ BEGIN
     IF v_job.type NOT IN ('deploy','restart')
        OR jsonb_object_length(NEW.result_json) <> 2
        OR NOT (NEW.result_json ?& ARRAY['local_port','container_name'])
-       OR NEW.result_json->>'container_name' !~ '^cloudexify-[0-9a-f-]{36}$'
+       OR NEW.result_json->>'container_name' <> 'cloudexify-' || v_job.deployment_id::text
        OR (NEW.result_json->>'local_port') !~ '^[0-9]{1,5}$' THEN
       RETURN NEW;
     END IF;
