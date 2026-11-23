@@ -127,7 +127,8 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
       lease_token: job.lease_token,
       status,
       result_code: result.result_code ?? null,
-      result_summary: result.result_summary ?? null
+      result_summary: result.result_summary ?? null,
+      result_metadata: result.result_metadata ?? {}
     }
   });
 }
