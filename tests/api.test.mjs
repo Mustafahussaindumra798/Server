@@ -289,7 +289,7 @@ test("node heartbeat rejects missing, invalid, revoked or expired credentials", 
 
 test("node heartbeat rejects invalid health and resource metrics", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
-  for (const body of [{ health_status: "unknown", resources: {} }, { health_status: "healthy", resources: { shell_command: 1 } }, { health_status: "healthy", resources: { cpu_percent: 101 } }, { health_status: "healthy", resources: { cpu_cores: 0 } }, { health_status: "healthy", resources: { memory_used_bytes: "large" } }]) {
+  for (const body of [{ health_status: "unknown", resources: {} }, { health_status: "healthy", resources: { shell_command: 1 } }, { health_status: "healthy", resources: { cpu_percent: 101 } }, { health_status: "healthy", resources: { cpu_cores: 0 } }, { health_status: "healthy", resources: { memory_used_bytes: "large" } }, { health_status: "healthy", resources: { memory_total_bytes: 100, memory_used_bytes: 80, memory_available_bytes: 80 } }, { health_status: "healthy", resources: { disk_total_bytes: 100, disk_used_bytes: 70, disk_available_bytes: 60 } }]) {
     const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify(body) });
     assert.equal(response.status, 400);
   }
