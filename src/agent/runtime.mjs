@@ -65,13 +65,13 @@ export class PodmanWorkloadRuntime {
     }
   }
 
-  async assertReady() {
+  async assertReady({ requireStorageQuota = false } = {}) {
     if (!this.runtimeProbe) throw new Error("Podman runtime qualification is required before workload execution.");
     const probe = await this.runtimeProbe();
     if (!probe?.ready || probe.rootless !== true || probe.cgroup_version !== "v2" || probe.cgroup_v2_available !== true) {
       throw new Error("Node is not qualified for rootless Podman workload execution.");
     }
-    if (probe.storage_quota?.ready !== true) {
+    if (requireStorageQuota && probe.storage_quota?.ready !== true) {
       throw new Error("Node is not qualified for enforced per-container storage quotas.");
     }
   }
@@ -115,7 +115,7 @@ export class PodmanWorkloadRuntime {
 
   async deploy(rawPayload) {
     const payload = validateDeploymentPayload(rawPayload);
-    await this.assertReady();
+    await this.assertReady({ requireStorageQuota: true });
     const existing = await this.inspect(payload.container_name).catch((error) => {
       if (/no such object|not found/i.test(error.message)) return null;
       throw error;
@@ -151,7 +151,7 @@ export class PodmanWorkloadRuntime {
       "--cap-drop=ALL",
       "--security-opt=no-new-privileges",
       "--user=10001:10001",
-      "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=" + String(Math.min(64 * 1024 * 1024, payload.resources.disk_bytes)) + "b",
+      "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=" + String(Math.floor(Math.min(64 * 1024 * 1024, payload.resources.disk_bytes) / (1024 * 1024))) + "m",
       payload.image
     ];
     try {
