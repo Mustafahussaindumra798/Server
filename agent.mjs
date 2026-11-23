@@ -125,7 +125,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
         const heartbeat = await requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/heartbeat", {
           method: "POST",
           credential: state.credential,
-          body: { agent_version: AGENT_VERSION, health_status: "healthy", resources }
+          body: { agent_version: AGENT_VERSION, health_status: "healthy", resources, capabilities: await getCapabilities(identity) }
         });
         onLog("info", "Heartbeat accepted", { node_id: state.node_id, status: heartbeat.node?.status || "unknown", metric_count: Object.keys(resources).length });
         nextHeartbeat = Date.now() + heartbeatSeconds * 1000;
