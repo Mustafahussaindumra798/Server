@@ -115,7 +115,7 @@
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
-- [ ] Apply migration 007 to production DB and deploy the verified `main` build
+- [ ] Apply migrations 007–009 to production DB and deploy the verified `main` build
 - [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
@@ -124,7 +124,11 @@
 - [x] Implement rootless Podman workload adapter with immutable digest validation, rootless/cgroup-v2 gate, CPU/memory/PID limits, read-only rootfs, dropped capabilities, no-new-privileges and loopback-only port publication (CI runs #267–272 passed)
 - [x] Agent dispatch for typed deploy/stop/restart jobs; rejects malformed payloads and never accepts arbitrary shell commands (CI runs #271–272 passed)
 - [x] Workload jobs are terminally rejected on unqualified nodes instead of retrying forever (CI run #277 passed)
-- [ ] Connect deployment creation to authorized, idempotent deploy/stop/restart job orchestration and deployment status transitions
+- [x] Connect authorized running deployment requests to immutable OCI image digest + TCP port validation and atomically queue a typed deploy job on the admitted node (migration 009)
+- [x] Reconcile deployment status from node job acknowledgements: accepted/running/succeeded remains deploying pending health; terminal failure/rejection marks failed
+- [x] Cancel queued deploy jobs when their deployment revision is cancelled
+- [x] Dashboard collects immutable image digest and container port; generic job API remains diagnostic-only
+- [x] API, health and PostgreSQL integration tests added for deployment job orchestration
 - [ ] Add durable runtime reconciliation after node restart and expired job leases
 - [ ] Add application health checks, revision health gates and rollback policy
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
