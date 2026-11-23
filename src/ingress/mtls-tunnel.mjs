@@ -2,11 +2,12 @@ import tls from "node:tls";
 
 export const NODE_TUNNEL_ALPN = "cloudexify-node-tunnel/1";
 const NODE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_FRAME_BYTES = 4096;
+const MAX_CONTROL_FRAME_BYTES = 4096;
+const MAX_ROUTE_FRAME_BYTES = 36 * 1024;
 
 function writeFrame(socket, value) {
   const frame = Buffer.from(JSON.stringify(value) + "\n", "utf8");
-  if (frame.length > MAX_FRAME_BYTES) throw new Error("Tunnel control frame exceeds the protocol limit.");
+  if (frame.length > MAX_CONTROL_FRAME_BYTES) throw new Error("Tunnel control frame exceeds the protocol limit.");
   socket.write(frame);
 }
 
@@ -25,6 +26,8 @@ export function createNodeTunnelServer({
   tlsOptions,
   authorizeCertificate,
   onConnection = () => {},
+  onDisconnect = () => {},
+  onRouteMessage = () => false,
   pingIntervalMs = 15000,
   authorizationRecheckMs = 15000,
   handshakeTimeoutMs = 5000,
@@ -52,6 +55,7 @@ export function createNodeTunnelServer({
     try { peer = getTunnelPeerIdentity(socket); }
     catch { socket.destroy(); return; }
     let welcomed = false;
+    let registered = false;
     let handshakeStarted = false;
     let rechecking = false;
     let sequence = 0;
@@ -64,6 +68,10 @@ export function createNodeTunnelServer({
       clearInterval(pingTimer);
       clearInterval(recheckTimer);
       if (activeNodes.get(peer.nodeId) === socket) activeNodes.delete(peer.nodeId);
+      if (registered) {
+        registered = false;
+        try { onDisconnect({ nodeId: peer.nodeId, socket }); } catch {}
+      }
     };
     socket.once("close", cleanup);
     const rejectPeer = (code = null) => {
@@ -97,7 +105,8 @@ export function createNodeTunnelServer({
       welcomed = true;
       try {
         writeFrame(socket, { type: "welcome", protocol: 1, heartbeat_interval_ms: pingIntervalMs });
-        onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber });
+        registered = true;
+        onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber, socket });
       } catch {
         rejectPeer();
         return;
@@ -123,11 +132,12 @@ export function createNodeTunnelServer({
     handshakeTimer.unref?.();
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
-      if (Buffer.byteLength(buffer, "utf8") > MAX_FRAME_BYTES) { rejectPeer(); return; }
       let newline;
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline);
         buffer = buffer.slice(newline + 1);
+        const limit = welcomed ? MAX_ROUTE_FRAME_BYTES : MAX_CONTROL_FRAME_BYTES;
+        if (Buffer.byteLength(line, "utf8") > limit) { rejectPeer(); return; }
         let message;
         try { message = JSON.parse(line); } catch { rejectPeer(); return; }
         if (!welcomed) {
@@ -142,10 +152,12 @@ export function createNodeTunnelServer({
           lastPongSequence = message.sequence;
           lastPongAt = Date.now();
         } else {
-          rejectPeer();
-          return;
+          let handled = false;
+          try { handled = onRouteMessage({ nodeId: peer.nodeId, message, socket }) === true; } catch {}
+          if (!handled) { rejectPeer(); return; }
         }
       }
+      if (Buffer.byteLength(buffer, "utf8") > MAX_ROUTE_FRAME_BYTES) rejectPeer();
     });
     socket.once("error", cleanup);
   });
