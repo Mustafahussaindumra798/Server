@@ -45,6 +45,7 @@ export function createNodeTunnelServer({
     requestCert: true,
     rejectUnauthorized: true,
     minVersion: "TLSv1.3",
+    handshakeTimeout: 10000,
     ALPNProtocols: [NODE_TUNNEL_ALPN]
   }, (socket) => {
     let peer;
