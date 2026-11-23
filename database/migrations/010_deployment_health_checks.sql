@@ -9,8 +9,9 @@ ALTER TABLE public.deployments
   ADD CONSTRAINT deployments_health_check_path_valid
     CHECK (length(health_check_path) BETWEEN 1 AND 256
       AND left(health_check_path, 1) = '/'
-      AND health_check_path ~ '^/[A-Za-z0-9._~!AND health_check_path !~ '[[:cntrl:]]'
-      AND health_check_path !~ '^//'),''()*+,;=:@%/-]*
+      AND health_check_path ~ '^/[A-Za-z0-9._~!$&''()*+,;=:@%/-]*$'
+      AND health_check_path !~ '^//'
+      AND health_check_path !~ '(^|/)\.\.(/|$)'),
   ADD CONSTRAINT deployments_health_check_timeout_range
     CHECK (health_check_timeout_seconds BETWEEN 5 AND 120);
 
