@@ -54,7 +54,7 @@ export function createRouteStreamManager({
       if (error) stream.reject(error);
       else stream.resolve();
     }
-    try { onStreamClose({ streamId: stream.id, nodeId: stream.nodeId, error }); } catch {}
+    try { stream.onClose({ streamId: stream.id, nodeId: stream.nodeId, error }); } catch {}
   }
 
   function attachNode({ nodeId, socket }) {
@@ -97,7 +97,14 @@ export function createRouteStreamManager({
         if (!streams.has(id)) throw new Error("Route stream is no longer active.");
         const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
         if (!bytes.length || bytes.length > MAX_DATA_BYTES) throw new Error("Route stream write exceeds the frame limit.");
-        writeFrame(node.socket, { type: "route_data", stream_id: id, data: bytes.toString("base64") });
+        return writeFrame(node.socket, { type: "route_data", stream_id: id, data: bytes.toString("base64") });
+      },
+      onDrain(callback) {
+        if (typeof callback !== "function") throw new Error("A drain callback is required.");
+        const currentNode = nodes.get(nodeId);
+        if (!currentNode || currentNode.socket.destroyed) return false;
+        currentNode.socket.once("drain", callback);
+        return true;
       },
       close() {
         const current = streams.get(id);
@@ -130,7 +137,6 @@ export function createRouteStreamManager({
     if (message.type === "route_close") {
       if (typeof message.reason !== "undefined" && (typeof message.reason !== "string" || message.reason.length > 64)) return false;
       finish(stream, null, false);
-      try { stream.onClose({ streamId: stream.id, nodeId, reason: message.reason || "node_closed" }); } catch {}
       return true;
     }
     if (message.type === "route_error") {
