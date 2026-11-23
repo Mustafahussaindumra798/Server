@@ -47,6 +47,30 @@ async function main() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("CLOUDEXIFY_TUNNEL_LISTEN_PORT must be between 1 and 65535.");
   const pool = createDatabasePool(required("DATABASE_URL"), { max: 10, queryTimeoutMillis: 5000 });
   const routeStreams = createRouteStreamManager();
+  let drainSyncTimer = null;
+  let drainSyncInFlight = false;
+  const syncIngressDrains = async () => {
+    if (drainSyncInFlight) return;
+    const connectedNodeIds = routeStreams.connectedNodeIds;
+    if (connectedNodeIds.length === 0) return;
+    drainSyncInFlight = true;
+    try {
+      const result = await pool.query(
+        "SELECT id FROM public.nodes WHERE id = ANY($1::uuid[]) AND ingress_draining = true",
+        [connectedNodeIds]
+      );
+      routeStreams.syncNodeDrainStates((result.rows || []).map((row) => row.id));
+    } catch (error) {
+      process.stderr.write(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "warn",
+        event: "node_ingress_drain_sync_failed",
+        message: error.message
+      }) + "\n");
+    } finally {
+      drainSyncInFlight = false;
+    }
+  };
   const server = createNodeTunnelServer({
     tlsOptions: {
       key: readTlsFile("CLOUDEXIFY_TUNNEL_SERVER_KEY", { privateKey: true }),
@@ -133,7 +157,14 @@ async function main() {
     }
   }
 
+  if (process.env.CLOUDEXIFY_PUBLIC_INGRESS_ENABLED === "true") {
+    drainSyncTimer = setInterval(() => { void syncIngressDrains(); }, 3000);
+    drainSyncTimer.unref?.();
+    void syncIngressDrains();
+  }
+
   const shutdown = () => {
+    if (drainSyncTimer) clearInterval(drainSyncTimer);
     ingressServer?.close();
     routeStreams.closeAll();
     server.close(() => { void pool.end().finally(() => process.exit(0)); });
