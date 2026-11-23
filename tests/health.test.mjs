@@ -26,7 +26,10 @@ const readySchema = {
   deployment_image_digest: true,
   deployment_container_port: true,
   deployment_job_reconciliation: true,
-  deployment_job_cancellation: true
+  deployment_job_cancellation: true,
+  deployment_health_check_path: true,
+  deployment_health_check_timeout: true,
+  deployment_health_checked_at: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -41,7 +44,8 @@ test("health reports ready only when the existing control-plane schema is comple
     schema: "ready",
     resource_admission: "ready",
     runtime_capabilities: "ready",
-    deployment_job_orchestration: "ready"
+    deployment_job_orchestration: "ready",
+    deployment_health_checks: "ready"
   });
 });
 
@@ -73,6 +77,14 @@ test("health identifies migration 009 when deployment job orchestration is incom
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["009_deployment_job_orchestration"]);
+});
+
+test("health identifies migration 010 when deployment health-check columns are missing", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_health_checked_at: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["010_deployment_health_checks"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
