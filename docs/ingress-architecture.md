@@ -80,8 +80,8 @@ The database function `app_private.register_deployment_domain_route(domain_claim
 7. [ ] Add automated certificate issuance, renewal, multi-certificate SNI, rotation and expiry monitoring after DNS/domain verification is operational.
 8. [x] Add periodic in-flight route revalidation and fail-closed termination on route/version/node/endpoint changes.
 9. [ ] Add multi-node scheduling/failover and graceful route-drain coordination.
-9. [ ] Run security/load/failure tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
-10. [ ] Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
+10. [ ] Run security/load/failure tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
+11. [ ] Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
 
 ## mTLS transport implementation boundary
 
