@@ -31,8 +31,8 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
       }
       if (query.startsWith("SELECT id, status, approved_at FROM nodes")) return { rows: [{ id: params[0], status: "pending", approved_at: null }], rowCount: 1 };
       if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds, capabilities_json, ingress_draining FROM nodes")) return { rows: [{
-        id: params[0], status: "online", approved_at: new Date().toISOString(),
-        last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 30,
+        id: params[0], status: "online", approved_at: new Date().toISOString(), platform: "linux",
+        last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 30, heartbeat_fresh: true,
         capabilities_json: { ingress_tunnel: true, loopback_forwarder: true }, ingress_draining: false
       }], rowCount: 1 };
       if (query.startsWith("UPDATE nodes SET ingress_draining = $3")) return { rows: [{
