@@ -42,6 +42,7 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
       if (query.startsWith("INSERT INTO domain_claims")) return { rows: [{ id: "71000000-0000-4000-8000-000000000031", hostname: params[1], status: "pending_verification", created_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("INSERT INTO domain_verification_challenges")) return { rows: [{ id: "72000000-0000-4000-8000-000000000031", record_name: params[3], expires_at: new Date(Date.now() + 1800000).toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, hostname, status FROM domain_claims")) return { rows: domainClaim ? [domainClaim] : [{ id: params[0], hostname: "app.example.test", status: "pending_verification" }], rowCount: domainClaim ? 1 : 1 };
+      if (query.startsWith("SELECT id FROM domain_verification_challenges")) return { rows: domainChallenge ? [{ id: domainChallenge.id }] : [], rowCount: domainChallenge ? 1 : 0 };
       if (query.startsWith("SELECT id, token_hash, record_name, expires_at FROM domain_verification_challenges")) return { rows: domainChallenge ? [domainChallenge] : [], rowCount: domainChallenge ? 1 : 0 };
       if (query.startsWith("SELECT app_private.verify_domain_claim")) return { rows: [{ verified: true }], rowCount: 1 };
       if (query.startsWith("SELECT app_private.revoke_expired_domain_challenges")) return { rows: [{ revoke_expired_domain_challenges: 0 }], rowCount: 1 };
@@ -792,4 +793,16 @@ test("expired domain challenge can be replaced but active challenge cannot be du
   assert.equal(payload.verification.record_name, "_cloudexify-verify.app.example.test");
   assert.match(payload.verification.record_value, /^cloudexify-verification=[A-Za-z0-9_-]{43}$/);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.revoke_expired_domain_challenges")), true);
+});
+
+test("domain challenge renewal refuses to replace an unexpired challenge", async (t) => {
+  const api = await startApi("owner", {
+    domainClaim: { id: "71000000-0000-4000-8000-000000000031", hostname: "app.example.test", status: "pending_verification" },
+    domainChallenge: { id: "72000000-0000-4000-8000-000000000031", token_hash: "a".repeat(64), record_name: "_cloudexify-verify.app.example.test", expires_at: new Date(Date.now() + 600000).toISOString() }
+  }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/domains/71000000-0000-4000-8000-000000000031/challenge", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" }, body: "{}"
+  });
+  assert.equal(response.status, 409);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO domain_verification_challenges")), false);
 });
