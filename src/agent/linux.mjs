@@ -25,7 +25,8 @@ const execFileAsync = promisify(execFile);
 export async function detectPodmanRuntime({
   runCommand = execFileAsync,
   readCgroupControllers = () => readFile("/sys/fs/cgroup/cgroup.controllers", "utf8"),
-  env = process.env
+  env = process.env,
+  readStorageMetrics = (targetPath) => statfs(targetPath)
 } = {}) {
   let info;
   try {
@@ -49,7 +50,7 @@ export async function detectPodmanRuntime({
   let storageMetrics = null;
   if (graphRoot) {
     try {
-      const fs = await statfs(graphRoot);
+      const fs = await readStorageMetrics(graphRoot);
       const totalBytes = Number(fs.blocks) * Number(fs.bsize);
       const availableBytes = Number(fs.bavail) * Number(fs.bsize);
       if (Number.isSafeInteger(totalBytes) && totalBytes > 0 && Number.isSafeInteger(availableBytes) && availableBytes >= 0 && availableBytes <= totalBytes) {
