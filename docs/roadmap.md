@@ -98,6 +98,7 @@
 - [x] Least-outstanding-jobs placement with oldest-assignment tie-break
 - [x] Atomic node row locks with `SKIP LOCKED` to distribute concurrent submissions
 - [x] Tenant-wide idempotency serialization so retries retain the original node assignment
+- [x] API regression coverage verifies tenant/key advisory locking precedes idempotency lookup, scheduler placement and job insertion (CI verification pending)
 - [ ] Load-aware capacity weights and fairness qualification under concurrent physical-node load
 - [ ] End-to-end multi-node job claim/ack test on both Android devices
 - [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/agent telemetry implemented; PostgreSQL + application CI passed in run #217)
@@ -150,6 +151,7 @@
 - [x] On terminal deploy failure, queue a typed restart of the previous health-verified revision on its fresh approved node (migration 013)
 - [x] Preserve the prior revision's container ID, port and health-check policy; mark the failed revision rolled_back only after the restored revision passes its own HTTP health check
 - [x] Avoid duplicate deployment rows/resource reservations; prevent recursive rollback and test no-previous-revision and rollback-failure cases
+- [x] PostgreSQL integration coverage verifies a second deployment failure cannot queue a competing rollback while the prior revision is already reserved (CI verification pending)
 - [x] Return Podman's dynamically assigned loopback port and deterministic container identity in a bounded node acknowledgement payload
 - [x] Persist only verified deployment-local port metadata from the active node lease; bind container identity to the deployment UUID and clear the port after confirmed stop (migration 014)
 - [x] Add PostgreSQL tests for endpoint registration, forged container identity rejection and stop cleanup
