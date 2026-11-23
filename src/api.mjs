@@ -657,6 +657,19 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           const resourceRequests = validateResourceRequests(application.rows[0].resource_requests_json);
           const imageDigest = desiredState === "running" ? validateImageDigest(body.image_digest) : null;
           const containerPort = desiredState === "running" ? body.container_port : null;
+          const healthCheckPath = desiredState === "running" ? (body.health_check_path == null ? "/" : body.health_check_path) : null;
+          const healthCheckTimeout = desiredState === "running" ? (body.health_check_timeout_seconds == null ? 30 : body.health_check_timeout_seconds) : null;
+          if (desiredState === "running" && (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !/^\\/[A-Za-z0-9._~!          const containerPort = desiredState === "running" ? body.container_port : null;
+          if (desiredState === "running" && (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535)) {'()*+,;=:@%/-]*$/.test(healthCheckPath) || healthCheckPath.startsWith("//") || healthCheckPath.split("/").includes(".."))) {
+            const error = new Error("health_check_path must be a safe absolute URL path of at most 256 characters.");
+            error.status = 400;
+            throw error;
+          }
+          if (desiredState === "running" && (!Number.isInteger(healthCheckTimeout) || healthCheckTimeout < 5 || healthCheckTimeout > 120)) {
+            const error = new Error("health_check_timeout_seconds must be an integer from 5 to 120.");
+            error.status = 400;
+            throw error;
+          }
           if (desiredState === "running" && (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535)) {
             const error = new Error("container_port must be an integer from 1 to 65535.");
             error.status = 400;
@@ -727,8 +740,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           }
           const revision = await client.query("SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM deployments WHERE tenant_id = $1 AND application_id = $2", [tenantId, applicationId]);
           const created = await client.query(
-            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by, image_digest, container_port) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, image_digest, container_port, resource_requests_json AS resource_requests, created_by, created_at",
-            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id, imageDigest, containerPort]
+            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by, image_digest, container_port, health_check_path, health_check_timeout_seconds) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, image_digest, container_port, health_check_path, health_check_timeout_seconds, health_checked_at, resource_requests_json AS resource_requests, created_by, created_at",
+            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id, imageDigest, containerPort, healthCheckPath, healthCheckTimeout]
           );
           let workloadJob = null;
           if (desiredState === "running") {
@@ -736,6 +749,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
               deployment_id: created.rows[0].id,
               image: imageDigest,
               container_port: containerPort,
+              health_check_path: healthCheckPath,
+              health_check_timeout_seconds: healthCheckTimeout,
               resources: {
                 cpu_millicores: resourceRequests.cpu_millicores,
                 memory_bytes: resourceRequests.memory_bytes
