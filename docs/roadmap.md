@@ -147,6 +147,7 @@
 - [ ] Add automatic rollback to the previous healthy revision after terminal failure
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
 - [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
+- [x] Read Podman GraphRoot free space and perform disk admission against the actual container-storage filesystem
 - [ ] Implement persistent application volumes, storage lifecycle and backup/restore
 - [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
