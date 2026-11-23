@@ -72,12 +72,12 @@ test("Linux metrics return only finite non-negative allowlisted values", async (
   const metrics = await readLinuxMetrics();
   assert.ok(Number.isFinite(metrics.uptime_seconds) && metrics.uptime_seconds >= 0);
   for (const [key, value] of Object.entries(metrics)) {
-    assert.ok(["uptime_seconds", "cpu_cores", "memory_total_bytes", "memory_used_bytes", "disk_total_bytes", "disk_available_bytes", "load_1m", "cpu_percent", "battery_percent", "temperature_c"].includes(key));
+    assert.ok(["uptime_seconds", "cpu_cores", "cpu_frequency_mhz", "memory_total_bytes", "memory_used_bytes", "memory_available_bytes", "disk_total_bytes", "disk_used_bytes", "disk_available_bytes", "android_shared_storage_total_bytes", "android_shared_storage_used_bytes", "android_shared_storage_available_bytes", "load_1m", "cpu_percent", "battery_percent", "temperature_c"].includes(key));
     assert.ok(Number.isFinite(value) && value >= 0, key);
   }
   if (metrics.cpu_percent !== undefined) assert.ok(metrics.cpu_percent <= 100);
   assert.ok(Number.isInteger(metrics.cpu_cores) && metrics.cpu_cores >= 1 && metrics.cpu_cores <= 256);
-  if (metrics.memory_total_bytes !== undefined && metrics.memory_used_bytes !== undefined) assert.ok(metrics.memory_used_bytes <= metrics.memory_total_bytes);
+  if (metrics.memory_total_bytes !== undefined) { assert.ok(metrics.memory_used_bytes <= metrics.memory_total_bytes); assert.ok(metrics.memory_available_bytes <= metrics.memory_total_bytes); assert.equal(metrics.memory_used_bytes + metrics.memory_available_bytes, metrics.memory_total_bytes); }\n  if (metrics.disk_total_bytes !== undefined) { assert.ok(metrics.disk_used_bytes <= metrics.disk_total_bytes); assert.ok(metrics.disk_available_bytes <= metrics.disk_total_bytes); }
 });
 
 test("probe diagnostic calls only the control-plane health endpoint", async () => {
