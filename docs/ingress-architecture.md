@@ -31,7 +31,7 @@ A route must be created or activated only when all of the following are true:
 - The deployment status is `healthy`, its node is approved and recently online, and its endpoint metadata is present and fresh.
 - The target node has a healthy authenticated tunnel and is explicitly qualified for ingress.
 
-Route states are explicit and auditable: `pending_transport`, `active` and `suspended` in the current registry; domain claims separately track verification. Route versions are signed into short-lived grants. Route changes must be idempotent and versioned. A route must be withdrawn on deployment stop, failed health, rollback transition, node revocation/offline expiry, domain verification loss or tenant suspension. A new revision becomes routable only after its health gate passes; rollback switches the route back only after the restored revision is healthy.
+Route states are explicit and auditable: `pending_transport`, `active` and `suspended` in the current registry; domain claims separately track verification. Route versions are signed into short-lived grants. Runtime loopback-port changes advance the route version (migration 019), and target-node changes withdraw the route pinned to the previous node. The gateway revalidates every active request approximately every 15 seconds against the exact route ID/version, tenant/domain/deployment eligibility, target node and loopback port, plus the live authenticated tunnel. Missing/ineligible rows, node disconnects or database revalidation errors terminate the existing request fail-closed. Route changes must be idempotent and versioned. A route must be withdrawn on deployment stop, failed health, rollback transition, node revocation/offline expiry, domain verification loss or tenant suspension. A new revision becomes routable only after its health gate passes; rollback switches the route back only after the restored revision is healthy.
 
 ## Security requirements
 
@@ -65,7 +65,7 @@ The ingress gateway is the public TLS termination point. Issue certificates only
 
 Migration `016_deployment_domain_route_registry.sql` adds an internal `deployment_domain_routes` registry. A route intent is bound by composite tenant foreign keys to one verified domain claim, application, deployment and target node. Registration is restricted to tenant Owner/Admin and requires an active tenant, running application, healthy running deployment, a recently observed loopback endpoint, and an approved, online, recently heartbeating Linux node.
 
-Migration `016_deployment_domain_route_registry.sql` initially created only pending route intents. Migration `018_activate_ingress_routes.sql` adds the guarded `active` state. Routes activate only when domain/deployment/node eligibility is intact and the node heartbeat explicitly advertises both `ingress_tunnel=true` and `loopback_forwarder=true`; loss of any prerequisite suspends the route. The registry still stores no upstream URL, public IP or local port. The gateway reads the runtime loopback port from the associated healthy deployment record and signs it into a short-lived grant. Route registration remains tenant Owner/Admin restricted and audited.
+Migration `016_deployment_domain_route_registry.sql` initially created only pending route intents. Migration `018_activate_ingress_routes.sql` adds the guarded `active` state. Routes activate only when domain/deployment/node eligibility is intact and the node heartbeat explicitly advertises both `ingress_tunnel=true` and `loopback_forwarder=true`; loss of any prerequisite suspends the route. Migration `019_ingress_route_endpoint_version.sql` increments the active route version when its deployment loopback port changes, without persisting that port in the route registry. The registry still stores no upstream URL, public IP or local port. The gateway reads the runtime loopback port from the associated healthy deployment record and signs it into a short-lived grant. Route registration remains tenant Owner/Admin restricted and audited.
 
 The database function `app_private.register_deployment_domain_route(domain_claim_id, deployment_id)` is the current internal registration interface. It is not a customer-facing route API and does not make DNS resolve or traffic flow.
 
@@ -78,7 +78,8 @@ The database function `app_private.register_deployment_domain_route(domain_claim
 5. [x] Implement bounded gateway multiplexing, normalized hostname matching, HTTPS termination, HTTP reverse-proxy piping, request limits and per-stream backpressure controls.
 6. [x] Add guarded route activation/suspension based on node transport capability flags and current deployment/domain/node eligibility.
 7. [ ] Add automated certificate issuance, renewal, multi-certificate SNI, rotation and expiry monitoring after DNS/domain verification is operational.
-8. [ ] Add periodic in-flight route revalidation, multi-node scheduling/failover and route-drain coordination.
+8. [x] Add periodic in-flight route revalidation and fail-closed termination on route/version/node/endpoint changes.
+9. [ ] Add multi-node scheduling/failover and graceful route-drain coordination.
 9. [ ] Run security/load/failure tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
 10. [ ] Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
 
@@ -90,4 +91,4 @@ The tunnel now carries bounded route frames in addition to control frames. The n
 
 ## Explicit non-goals and release gates
 
-The current code does not yet provide automated ACME issuance/renewal, multi-certificate SNI, multi-node scheduling/failover, periodic in-flight route revalidation or physical Debian 12 qualification. Android/Termux nodes remain diagnostics-only. Do not publish container ports on public interfaces or enable the public HTTPS listener until migration 018 is applied to the correct Server database, TLS/firewall operations are provisioned, and threat, load, failure and physical-node release gates pass.
+The current code does not yet provide automated ACME issuance/renewal, multi-certificate SNI, multi-node scheduling/failover or physical Debian 12 qualification. Periodic in-flight route revalidation is implemented; graceful draining across route changes remains pending. Android/Termux nodes remain diagnostics-only. Do not publish container ports on public interfaces or enable the public HTTPS listener until migration 018 is applied to the correct Server database, TLS/firewall operations are provisioned, and threat, load, failure and physical-node release gates pass.
