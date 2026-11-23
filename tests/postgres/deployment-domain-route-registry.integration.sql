@@ -6,7 +6,9 @@ DECLARE
   v_other_tenant uuid := gen_random_uuid();
   v_user uuid := gen_random_uuid();
   v_app uuid;
+  v_other_app uuid;
   v_node uuid;
+  v_other_node uuid;
   v_domain uuid;
   v_unverified_domain uuid;
   v_deployment uuid;
@@ -53,6 +55,26 @@ BEGIN
     49152, clock_timestamp(), clock_timestamp()
   ) RETURNING id INTO v_deployment;
 
+  INSERT INTO public.applications (tenant_id, name, desired_state)
+  VALUES (v_other_tenant, 'other-tenant-app', 'running') RETURNING id INTO v_other_app;
+  INSERT INTO public.nodes (
+    tenant_id, name, platform, architecture, status, approved_at,
+    last_seen_at, heartbeat_interval_seconds
+  ) VALUES (
+    v_other_tenant, 'other-tenant-node', 'linux', 'x86_64', 'online',
+    clock_timestamp(), clock_timestamp(), 30
+  ) RETURNING id INTO v_other_node;
+  INSERT INTO public.deployments (
+    tenant_id, application_id, revision, target_node_id, desired_state, status,
+    image_digest, container_port, resource_requests_json,
+    runtime_local_port, runtime_observed_at, health_checked_at
+  ) VALUES (
+    v_other_tenant, v_other_app, 1, v_other_node, 'running', 'healthy',
+    'registry.example.test/other@sha256:' || repeat('b', 64), 8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}',
+    49153, clock_timestamp(), clock_timestamp()
+  ) RETURNING id INTO v_other_deployment;
+
   PERFORM set_config('app.user_id', v_user::text, true);
 
   v_route := app_private.register_deployment_domain_route(v_domain, v_deployment);
@@ -79,11 +101,53 @@ BEGIN
   END;
 
   BEGIN
-    PERFORM app_private.register_deployment_domain_route(v_domain, gen_random_uuid());
-    RAISE EXCEPTION 'Unknown or cross-tenant deployment was accepted';
+    PERFORM app_private.register_deployment_domain_route(v_domain, v_other_deployment);
+    RAISE EXCEPTION 'Cross-tenant deployment was accepted';
   EXCEPTION WHEN insufficient_privilege THEN
     NULL;
   END;
+
+  BEGIN
+    PERFORM app_private.register_deployment_domain_route(v_domain, gen_random_uuid());
+    RAISE EXCEPTION 'Unknown deployment was accepted';
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+
+  -- Missing or stale runtime endpoint metadata must not be registered.
+  INSERT INTO public.deployments (
+    tenant_id, application_id, revision, target_node_id, desired_state, status,
+    image_digest, container_port, resource_requests_json
+  ) VALUES (
+    v_tenant, v_app, 2, v_node, 'running', 'healthy',
+    'registry.example.test/missing@sha256:' || repeat('c', 64), 8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}'
+  );
+  BEGIN
+    PERFORM app_private.register_deployment_domain_route(
+      v_domain,
+      (SELECT id FROM public.deployments WHERE tenant_id=v_tenant AND application_id=v_app AND revision=2)
+    );
+    RAISE EXCEPTION 'Deployment without a runtime endpoint was accepted';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  UPDATE public.deployments
+     SET runtime_observed_at = clock_timestamp() - interval '6 minutes'
+   WHERE id = v_deployment;
+  SELECT status, reason_code INTO v_status, v_reason
+    FROM public.deployment_domain_routes WHERE id = v_route;
+  IF v_status <> 'suspended' OR v_reason <> 'endpoint_missing_or_stale' THEN
+    RAISE EXCEPTION 'Stale runtime endpoint did not suspend its route';
+  END IF;
+  UPDATE public.deployments
+     SET runtime_observed_at = clock_timestamp()
+   WHERE id = v_deployment;
+  SELECT status INTO v_status FROM public.deployment_domain_routes WHERE id = v_route;
+  IF v_status <> 'pending_transport' THEN
+    RAISE EXCEPTION 'Fresh runtime endpoint did not restore pending route intent';
+  END IF;
 
   -- A deployment that becomes unhealthy immediately withdraws its route intent.
   UPDATE public.deployments SET status = 'failed' WHERE id = v_deployment;
