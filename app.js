@@ -484,8 +484,8 @@ async function init() {
       description: "Queue a deployment on an eligible Linux node. Provide an immutable OCI image digest; public ingress and application health checks are not enabled yet.",
       fields: [
         { name: "application_id", label: "Application", type: "select", required: true, options: apps.map((app, index) => ({ value: app.id, label: app.name, selected: index === 0 })) },
-        { name: "image_digest", label: "Immutable OCI image digest", required: true, maxLength: 300, placeholder: "registry.example.com/team/app@sha256:<64 hex>" },
-        { name: "container_port", label: "Container TCP port", type: "number", required: true, maxLength: 5, placeholder: "8080" },
+        { name: "image_digest", label: "Immutable OCI image digest (required for running)", required: false, maxLength: 300, placeholder: "registry.example.com/team/app@sha256:<64 hex>" },
+        { name: "container_port", label: "Container TCP port (required for running)", type: "number", required: false, maxLength: 5, placeholder: "8080" },
         { name: "target_node_id", label: "Target node (optional)", type: "select", required: false, options: [{ value: "", label: "Automatic capacity-based placement" }, ...nodes.map((node) => ({ value: node.id, label: node.name + " · " + node.platform }))] },
         { name: "desired_state", label: "Desired state", type: "select", required: true, options: [{ value: "running", label: "Running", selected: true }, { value: "stopped", label: "Stopped" }] }
       ],
