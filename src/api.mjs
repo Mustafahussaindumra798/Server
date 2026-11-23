@@ -285,7 +285,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         return true;
       }
 
-      const routeGrantMatch = url.pathname.match(/^\\/api\\/v1\\/nodes\\/([0-9a-f-]{36})\\/routes\\/([0-9a-f-]{36})\\/grant$/i);
+      const routeGrantMatch = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/routes\/([0-9a-f-]{36})\/grant$/i);
       if (routeGrantMatch && request.method === "GET") {
         if (!pool) { const error = new Error("Node route authorization is not configured with a database."); error.status = 503; throw error; }
         const nodeId = requireUuid(routeGrantMatch[1], "node_id");
