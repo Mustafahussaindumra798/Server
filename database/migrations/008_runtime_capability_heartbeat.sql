@@ -69,7 +69,7 @@ REVOKE ALL ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jso
 DO $grant_runtime$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cloudexify_runtime') THEN
-    GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb) TO cloudexify_runtime;
+    EXECUTE 'GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb) TO cloudexify_runtime';
   END IF;
 END
 $grant_runtime$;
