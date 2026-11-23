@@ -481,16 +481,24 @@ async function init() {
     const nodes = state.data.nodes.filter((node) => ["online", "degraded"].includes(node.status));
     showResourceDialog({
       title: "Request deployment",
-      description: "Create a deployment revision. Workload execution is not enabled in this prototype yet.",
+      description: "Queue a deployment on an eligible Linux node. Provide an immutable OCI image digest; public ingress and application health checks are not enabled yet.",
       fields: [
         { name: "application_id", label: "Application", type: "select", required: true, options: apps.map((app, index) => ({ value: app.id, label: app.name, selected: index === 0 })) },
-        { name: "target_node_id", label: "Target node (optional)", type: "select", required: false, options: [{ value: "", label: "Unassigned — scheduler not enabled" }, ...nodes.map((node) => ({ value: node.id, label: node.name + " · " + node.platform }))] },
+        { name: "image_digest", label: "Immutable OCI image digest", required: true, maxLength: 300, placeholder: "registry.example.com/team/app@sha256:<64 hex>" },
+        { name: "container_port", label: "Container TCP port", type: "number", required: true, maxLength: 5, placeholder: "8080" },
+        { name: "target_node_id", label: "Target node (optional)", type: "select", required: false, options: [{ value: "", label: "Automatic capacity-based placement" }, ...nodes.map((node) => ({ value: node.id, label: node.name + " · " + node.platform }))] },
         { name: "desired_state", label: "Desired state", type: "select", required: true, options: [{ value: "running", label: "Running", selected: true }, { value: "stopped", label: "Stopped" }] }
       ],
       submitLabel: "Create deployment request",
       onSubmit: async (form) => {
-        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments", { method: "POST", body: JSON.stringify({ application_id: form.get("application_id"), target_node_id: form.get("target_node_id") || null, desired_state: form.get("desired_state") }) });
-        dashboardMessage("Deployment revision queued. No workload has been started yet.");
+        const desiredState = String(form.get("desired_state"));
+        const body = { application_id: form.get("application_id"), target_node_id: form.get("target_node_id") || null, desired_state: desiredState };
+        if (desiredState === "running") {
+          body.image_digest = String(form.get("image_digest") || "").trim();
+          body.container_port = Number(form.get("container_port"));
+        }
+        const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments", { method: "POST", body: JSON.stringify(body) });
+        dashboardMessage(result.runtime_job_queued ? "Deployment job queued on node " + result.deployment.target_node_id + ". Process startup and application health will be reported separately." : "Stopped deployment revision recorded.");
       }
     });
   });
