@@ -66,6 +66,7 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
       if (query.startsWith("SELECT * FROM app_private.enroll_node")) return { rows: [{ node_id: "30000000-0000-4000-8000-000000000001", tenant_id: tenantId, credential_id: "80000000-0000-4000-8000-000000000001" }], rowCount: 1 };
       if (query.startsWith("SELECT * FROM app_private.accept_node_heartbeat")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ node_id: params[0], status: "online", last_seen_at: "2026-11-22T00:00:00.000Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT app_private.node_credential_is_valid")) return { rows: [{ valid: params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") }], rowCount: 1 };
+      if (query.startsWith("SELECT app_private.reconcile_node_deployments")) return { rows: [{ reconciled_jobs: 2 }], rowCount: 1 };
       if (query.startsWith("SELECT * FROM app_private.claim_node_jobs")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ job_id: "60000000-0000-4000-8000-000000000001", job_type: "probe", payload: {}, attempt_id: "70000000-0000-4000-8000-000000000001", lease_token: "80000000-0000-4000-8000-000000000001", lease_expires_at: new Date(Date.now() + 60000).toISOString(), attempt_number: 1 }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT * FROM app_private.acknowledge_node_job")) return params[1] === createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex") ? { rows: [{ job_id: params[2], status: params[5], attempt_id: params[3], retry_at: null }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (query.startsWith("INSERT INTO audit_events")) return { rows: [], rowCount: 1 };
@@ -487,6 +488,21 @@ test("node acknowledgement requires a valid lease and reports lifecycle state", 
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).job.status, "succeeded");
+});
+
+test("node runtime reconciliation requires its credential and queues recovery jobs", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const url = api.origin + "/api/v1/nodes/30000000-0000-4000-8000-000000000001/runtime/reconcile";
+  const denied = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  assert.equal(denied.status, 401);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" },
+    body: "{}"
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { reconciled_jobs: 2 });
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("SELECT app_private.reconcile_node_deployments")), true);
 });
 
 test("node job endpoints reject missing credentials and invalid lease bounds", async (t) => {
