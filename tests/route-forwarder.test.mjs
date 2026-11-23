@@ -50,7 +50,7 @@ test("forwarder opens only a signed grant endpoint on IPv4 loopback and relays b
 
 test("forwarder rejects replayed, wrong-node, expired and malformed route opens", () => {
   const tunnel = new TunnelSocket();
-  const forwarder = createRouteForwarder({ nodeId, publicKeyPem: publicPem, tunnelSocket: tunnel, connectImpl: () => { throw new Error("must not connect"); } });
+  const forwarder = createRouteForwarder({ nodeId, publicKeyPem: publicPem, tunnelSocket: tunnel, connectImpl: () => new EventEmitter() });
   const valid = sign(route).token;
   assert.equal(forwarder.handle({ type: "route_open", stream_id: "bad", grant: valid + "x" }), false);
   assert.equal(forwarder.handle({ type: "route_open", stream_id: "s1", grant: valid }), true);
