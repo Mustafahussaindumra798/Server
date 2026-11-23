@@ -203,6 +203,7 @@ test("running deployment requires fresh telemetry and sufficient reserved capaci
   assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,ready\}' = 'true'/);
   assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,rootless\}' = 'true'/);
   assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,cgroup_version\}' = 'v2'/);
+  assert.match(placement.sql, /storage_quota,ready/);
   assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,cosign,ready\}' = 'true'/);
   assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,cosign,trust_key_configured\}' = 'true'/);
   const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO deployments"));
@@ -545,6 +546,7 @@ test("deployment request queues an immutable-image workload job in the same tran
   assert.equal(jobPayload.health_check_path, "/");
   assert.equal(jobPayload.health_check_timeout_seconds, 30);
   assert.equal(jobPayload.resources.cpu_millicores, 250);
+  assert.equal(jobPayload.resources.disk_bytes, 1073741824);
 });
 
 test("running deployment rejects mutable images and invalid ports before writing", async (t) => {
