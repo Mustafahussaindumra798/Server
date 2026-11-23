@@ -72,6 +72,7 @@ test("gateway tunnel listener enforces TLS 1.3, client certificates and the priv
   assert.equal(options.requestCert, true);
   assert.equal(options.rejectUnauthorized, true);
   assert.equal(options.minVersion, "TLSv1.3");
+  assert.equal(options.handshakeTimeout, 10000);
   assert.deepEqual(options.ALPNProtocols, [GATEWAY_ALPN]);
   assert.throws(() => createNodeTunnelServer({ tlsOptions: {}, authorizeCertificate: async () => true }));
 });
