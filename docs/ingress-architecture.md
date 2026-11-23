@@ -69,6 +69,20 @@ Migration `016_deployment_domain_route_registry.sql` initially created only pend
 
 The database function `app_private.register_deployment_domain_route(domain_claim_id, deployment_id)` is the current internal registration interface. It is not a customer-facing route API and does not make DNS resolve or traffic flow.
 
+## Operator-controlled node ingress drain
+
+Tenant Owners and Admins can stop or resume ingress admission for an approved node:
+
+`POST /api/v1/tenants/{tenant_id}/nodes/{node_id}/state`
+
+Request body:
+
+```json
+{ "ingress_state": "draining" }
+```
+
+Use `"active"` to resume. The API validates tenant ownership, records an audit event, and only permits resume when the node is approved, online with a fresh heartbeat, Linux-based, and advertising both `ingress_tunnel` and `loopback_forwarder` capabilities. Draining blocks new hostname lookups and signed route grants without changing the route version; the gateway reconciles connected-node drain state every three seconds and allows existing streams to finish within the bounded drain timeout. The dashboard exposes these controls only to Owners/Admins and requires confirmation before draining.
+
 ## Implementation sequence
 
 1. Add tenant-scoped domain claims and verification challenge lifecycle with database constraints, RLS, audit events and integration tests.
