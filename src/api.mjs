@@ -303,8 +303,21 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (!["accepted", "running", "succeeded", "failed", "rejected"].includes(body.status)) { const error = new Error("status must be accepted, running, succeeded, failed or rejected."); error.status = 400; throw error; }
         const resultCode = body.result_code == null ? null : requireText(body.result_code, "result_code", 80);
         const resultSummary = body.result_summary == null ? null : requireText(body.result_summary, "result_summary", 4000);
+        const resultMetadata = body.result_metadata == null ? {} : body.result_metadata;
+        if (!resultMetadata || typeof resultMetadata !== "object" || Array.isArray(resultMetadata) ||
+            Object.keys(resultMetadata).some((key) => !["local_port", "container_name"].includes(key)) ||
+            (Object.keys(resultMetadata).length > 0 &&
+              (body.status !== "succeeded" || resultCode !== "workload_healthy" ||
+               Object.keys(resultMetadata).length !== 2 ||
+               !Number.isInteger(resultMetadata.local_port) || resultMetadata.local_port < 1 || resultMetadata.local_port > 65535 ||
+               typeof resultMetadata.container_name !== "string" ||
+               !/^cloudexify-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(resultMetadata.container_name)))) {
+          const error = new Error("result_metadata must contain only a valid local_port and Cloudexify container_name for a healthy workload result.");
+          error.status = 400;
+          throw error;
+        }
         const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
-        const acknowledgement = await withNodeJobAcknowledgement(pool, { nodeId, credentialHash, jobId, attemptId, leaseToken, status: body.status, resultCode, resultSummary });
+        const acknowledgement = await withNodeJobAcknowledgement(pool, { nodeId, credentialHash, jobId, attemptId, leaseToken, status: body.status, resultCode, resultSummary, resultMetadata });
         if (!acknowledgement) { const error = new Error("Job lease is invalid, expired, stale or does not belong to this node."); error.status = 409; throw error; }
         send(response, 200, { job: acknowledgement }, requestId);
         return true;
