@@ -34,6 +34,7 @@ The adapter invokes Podman with an argument array (never a shell) and enforces:
 - Deploy pulls the immutable image, creates the container, and verifies Podman's running state.
 - Stop checks the resulting state and is idempotent for an absent or stopped container.
 - Restart requires an existing container and verifies that it is running afterward.
+- A workload job received by a node without rootless Podman/cgroup-v2 qualification is terminally rejected rather than retried indefinitely.
 - A process running is not equivalent to an application passing its health check. Results explicitly state that health has not been verified.
 
 ## Release blockers before customer workloads
