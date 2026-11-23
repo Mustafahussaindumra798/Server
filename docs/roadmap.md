@@ -70,6 +70,7 @@
 - [x] Strict typed diagnostic allowlist (`probe`, `collect_metrics`)
 - [x] Tenant-scoped jobs with idempotency, leases, retries and guarded acknowledgements
 - [x] Linux x86_64/aarch64 diagnostic node agent
+- [x] Automated agent integration test covers claimed `probe` and `collect_metrics` execution, lease-token/attempt-ID propagation, and accepted → running → succeeded acknowledgements (CI verification pending)
 - [x] Android/Termux environment detection and optional battery/thermal metric collection added
 - [x] Agent reports total, used and available RAM; agent-filesystem total/used/available; CPU core count, usage and optional frequency
 - [x] Android shared internal storage total/used/available reported separately when Termux storage permission is granted
