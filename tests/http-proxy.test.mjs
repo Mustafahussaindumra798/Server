@@ -197,3 +197,64 @@ test("active ingress route is terminated when periodic revalidation detects revo
   assert.equal(responseStatus, 503);
   assert.equal(intervalCleared, true);
 });
+
+test("active ingress route is terminated when periodic revalidation database access fails", async (t) => {
+  let intervalCallback;
+  let queryCount = 0;
+  const pool = {
+    async query(sql) {
+      queryCount += 1;
+      if (sql.includes("WHERE route.id = $1")) {
+        throw new Error("database unavailable");
+      }
+      return { rows: [route] };
+    }
+  };
+  const routeStreams = {
+    hasNode: () => true,
+    async openStream() {
+      return {
+        write: () => true,
+        onDrain: () => true,
+        pause: () => true,
+        resume: () => true,
+        close: () => {}
+      };
+    }
+  };
+  const handler = createIngressRequestHandler({
+    pool,
+    routeStreams,
+    signRouteGrant: () => ({ token: "signed-route-grant" }),
+    certificate: { checkHost: () => true },
+    revalidateIntervalMs: 1000,
+    setIntervalImpl(callback) {
+      intervalCallback = callback;
+      return { unref() {} };
+    },
+    clearIntervalImpl() {}
+  });
+  const server = http.createServer((req, res) => { void handler(req, res); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const responsePromise = new Promise((resolve, reject) => {
+    const req = http.get({
+      host: "127.0.0.1",
+      port: server.address().port,
+      headers: { host: "app.example.test" }
+    }, (res) => {
+      res.resume();
+      res.once("end", () => resolve(res.statusCode));
+    });
+    req.once("error", reject);
+  });
+
+  for (let attempt = 0; attempt < 20 && !intervalCallback; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(typeof intervalCallback, "function");
+  await intervalCallback();
+  assert.equal(queryCount, 2);
+  assert.equal(await responsePromise, 503);
+});
