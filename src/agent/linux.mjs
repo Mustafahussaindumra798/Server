@@ -51,7 +51,8 @@ export async function readCpuPercent({ procRoot = "/proc", delay = (ms) => new P
 }
 
 export async function readLinuxMetrics({ procRoot = "/proc", diskPath = "/" } = {}) {
-  const metrics = { uptime_seconds: Math.max(0, Math.floor(os.uptime())) };
+  const parallelism = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  const metrics = { uptime_seconds: Math.max(0, Math.floor(os.uptime())), cpu_cores: Math.max(1, Math.min(256, Math.floor(parallelism))) };
   try {
     const meminfo = await readFile(path.join(procRoot, "meminfo"), "utf8");
     const values = Object.fromEntries(meminfo.split("\n").map((line) => {
