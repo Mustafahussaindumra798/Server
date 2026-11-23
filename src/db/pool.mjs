@@ -135,3 +135,34 @@ export async function withNodeJobAcknowledgement(pool, acknowledgement) {
     client.release();
   }
 }
+
+
+export async function withNodeRuntimeReconciliation(pool, reconciliation) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const credential = await client.query(
+      "SELECT app_private.node_credential_is_valid($1, $2) AS valid",
+      [reconciliation.nodeId, reconciliation.credentialHash]
+    );
+    if (!credential.rows[0]?.valid) {
+      await client.query("COMMIT");
+      transactionStarted = false;
+      return null;
+    }
+    const result = await client.query(
+      "SELECT app_private.reconcile_node_deployments($1) AS reconciled_jobs",
+      [reconciliation.nodeId]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return Number(result.rows[0]?.reconciled_jobs || 0);
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
