@@ -57,6 +57,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/007_resource_admission.sql
       - name: Apply runtime capability heartbeat migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/008_runtime_capability_heartbeat.sql
+      - name: Verify runtime capability heartbeat
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/runtime-capabilities.integration.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify fair job distribution
