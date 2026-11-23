@@ -25,6 +25,7 @@ test("hostname normalization rejects malformed, IP and authority injection", () 
 
 test("HTTPS ingress handler proxies HTTP over an authenticated route stream", async (t) => {
   let receivedRequest = "";
+  let responseSent = false;
   const pool = {
     async query(_sql, params) {
       assert.deepEqual(params, ["app.example.test"]);
@@ -39,7 +40,11 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
       return {
         write(chunk) {
           receivedRequest += chunk.toString();
-          if (receivedRequest.includes("\r\n\r\n")) {
+          const headerEnd = receivedRequest.indexOf("\r\n\r\n");
+          const length = Number(receivedRequest.match(/content-length: (\d+)/i)?.[1] || 0);
+          const bodyBytes = headerEnd < 0 ? 0 : Buffer.byteLength(receivedRequest.slice(headerEnd + 4));
+          if (!responseSent && headerEnd >= 0 && bodyBytes >= length) {
+            responseSent = true;
             queueMicrotask(() => onData({
               streamId: "test-stream",
               nodeId,
@@ -70,7 +75,7 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
       host: "127.0.0.1",
       port: server.address().port,
       path: "/hello?from=test",
-      method: "GET",
+      method: "POST",
       headers: { host: "app.example.test" }
     }, (res) => {
       const chunks = [];
@@ -78,13 +83,14 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() }));
     });
     req.once("error", reject);
-    req.end();
+    req.end("x".repeat(70 * 1024));
   });
 
   assert.equal(response.status, 200);
   assert.equal(response.body, "hello");
   assert.equal(response.headers["x-upstream"], "test");
-  assert.match(receivedRequest, /^GET \/hello\?from=test HTTP\/1\.1\r\n/);
+  assert.match(receivedRequest, /^POST \/hello\?from=test HTTP\/1\.1\r\n/);
+  assert.equal(Buffer.byteLength(receivedRequest.slice(receivedRequest.indexOf("\r\n\r\n") + 4)), 70 * 1024);
   assert.match(receivedRequest, /host: app\.example\.test/i);
   assert.match(receivedRequest, /x-forwarded-proto: https/i);
 });
