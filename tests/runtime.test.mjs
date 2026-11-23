@@ -101,11 +101,12 @@ test("deployment refuses unsigned images before Podman pulls or runs them", asyn
     runCommand: async (binary, args) => {
       calls.push([binary, args]);
       if (binary === "cosign") { const error = new Error("no matching signatures"); error.stderr = "no matching signatures"; throw error; }
-      throw new Error("Podman must not run for an unsigned image");
+      if (args[0] === "inspect") { const error = new Error("missing container"); error.stderr = "no such object"; throw error; }
+      throw new Error("Podman must not pull or run an unsigned image");
     }
   });
   await assert.rejects(runtime.deploy(payload), /OCI image signature verification failed/);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], "cosign");
-  assert.deepEqual(calls[0][1], ["verify", "--key", "/etc/cloudexify/trust.pub", digest]);
+  assert.equal(calls.some(([binary, args]) => binary === "podman" && ["pull", "run"].includes(args[0])), false);
+  assert.equal(calls.some(([binary]) => binary === "cosign"), true);
+  assert.deepEqual(calls.find(([binary]) => binary === "cosign")[1], ["verify", "--key", "/etc/cloudexify/trust.pub", digest]);
 });
