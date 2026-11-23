@@ -137,3 +137,19 @@ test("gateway forcibly detaches a node when graceful route drain times out", asy
   assert.equal(manager.activeStreams, 0);
   assert.match(closeError.message, /drain timed out/);
 });
+
+test("gateway resolves a pending drain as unsuccessful when the node disconnects", async () => {
+  const manager = createRouteStreamManager();
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  await pending;
+
+  const draining = manager.drainNode(nodeId, { timeoutMs: 5000 });
+  manager.detachNode(nodeId, new Error("Node disconnected during drain."));
+  assert.deepEqual(await draining, { drained: false, activeStreams: 0 });
+  assert.equal(manager.hasNode(nodeId), false);
+  assert.equal(manager.activeStreams, 0);
+});
