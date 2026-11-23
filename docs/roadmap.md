@@ -175,6 +175,7 @@
 - [x] Add node-level graceful route-stream draining: reject new streams, allow active streams to finish, and force-detach on timeout or node disconnect
 - [x] Add database-backed ingress drain state, audited Owner/Admin control API, grant/lookup admission gate and gateway reconciliation
 - [x] Connect database-backed node ingress drain state to Owner/Admin API controls and gateway stream drain/resume synchronization; preserve existing requests during drain
+- [x] Verify the node ingress drain migration's partial index in PostgreSQL integration checks
 - [ ] Implement multi-node route scheduling/failover, automated ACME/SNI certificate lifecycle, and production load/failure qualification
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
