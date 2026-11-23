@@ -764,7 +764,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
                 AND node.capabilities_json #>> '{runtime_probe,podman,cgroup_version}' = 'v2'
                 AND node.capabilities_json #>> '{runtime_probe,podman,cgroup_v2_available}' = 'true'
                  AND node.capabilities_json #>> '{runtime_probe,podman,storage_quota,ready}' = 'true'
-                AND (node.capabilities_json #>> '{runtime_probe,podman,storage_quota,available_bytes}') ~ '^[1-9][0-9]*
+                AND jsonb_typeof(node.capabilities_json #> '{runtime_probe,podman,storage_quota,available_bytes}') = 'number'
+                AND (node.capabilities_json #>> '{runtime_probe,podman,storage_quota,available_bytes}')::bigint > 0
                 AND node.capabilities_json #>> '{runtime_probe,cosign,ready}' = 'true'
                 AND node.capabilities_json #>> '{runtime_probe,cosign,trust_key_configured}' = 'true'
                 AND node.status IN ('online', 'degraded')
