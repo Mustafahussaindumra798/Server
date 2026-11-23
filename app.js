@@ -191,11 +191,23 @@ function nodeRows(nodes) {
     return '<tr class="node-row" tabindex="0" data-node-open="' + escapeHtml(node.id) + '"><td><strong>' + escapeHtml(node.name) + '<small class="subcell">' + escapeHtml(node.id) + "</small></strong></td><td>" + escapeHtml(node.platform) + " · " + escapeHtml(node.architecture) + "</td><td>" + cpu + " · " + memory + battery + temperature + "</td><td>" + status(node.status) + '</td><td>' + escapeHtml(formatDate(node.last_seen_at)) + actions + "</td></tr>";
   });
 }
-function applicationRows(apps) {
-  return apps.map((app) => "<tr><td>" + escapeHtml(app.name) + '<small class="subcell">' + escapeHtml(app.id) + "</small></td><td>" + escapeHtml(app.desired_state) + "</td><td>" + escapeHtml(formatDate(app.updated_at || app.created_at)) + "</td></tr>");
+function applicationRows(apps, canManage) {
+  return apps.map((app) => {
+    const nextState = app.desired_state === "running" ? "stopped" : "running";
+    const action = canManage
+      ? '<button type="button" class="small-action" data-application-state="' + nextState + '" data-application-id="' + escapeHtml(app.id) + '">' + (nextState === "running" ? "Set running" : "Set stopped") + '</button>'
+      : "";
+    return "<tr><td>" + escapeHtml(app.name) + '<small class="subcell">' + escapeHtml(app.id) + "</small></td><td>" + status(app.desired_state) + "</td><td>" + escapeHtml(formatDate(app.updated_at || app.created_at)) + action + "</td></tr>";
+  });
 }
-function deploymentRows(items) {
-  return items.map((item) => "<tr><td>" + escapeHtml(item.revision) + "</td><td>" + escapeHtml(item.application_id) + "</td><td>" + escapeHtml(item.desired_state) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(formatDate(item.created_at)) + "</td></tr>");
+function deploymentRows(items, canOperate) {
+  return items.map((item) => {
+    const canCancel = canOperate && item.desired_state === "running" && ["queued", "scheduled"].includes(item.status);
+    const action = canCancel
+      ? '<button type="button" class="small-action" data-deployment-cancel="' + escapeHtml(item.id) + '">Cancel queued</button>'
+      : "";
+    return "<tr><td>" + escapeHtml(item.revision) + "</td><td>" + escapeHtml(item.application_id) + "</td><td>" + escapeHtml(item.desired_state) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(formatDate(item.created_at)) + action + "</td></tr>";
+  });
 }
 function jobRows(items) {
   return items.map((item) => "<tr><td>" + escapeHtml(item.type) + "</td><td>" + escapeHtml(item.node_id) + "</td><td>" + status(item.status) + "</td><td>" + escapeHtml(item.attempt_count) + "</td><td>" + escapeHtml(formatDate(item.updated_at || item.created_at)) + "</td></tr>");
@@ -290,8 +302,8 @@ function renderPage() {
   const config = {
     overview: ["Compute nodes", "Latest node heartbeat and resource reports", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes.slice(0, 8)), "No nodes registered in this workspace.")],
     nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
-    applications: ["Applications", "Applications stored in the control-plane database", table(["APPLICATION", "DESIRED STATE", "UPDATED"], applicationRows(applications), "No applications registered in this workspace.")],
-    deployments: ["Deployments", "Persisted deployment revisions", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED"], deploymentRows(deployments), "No deployments recorded in this workspace.")],
+    applications: ["Applications", "Desired state is stored; changing it does not start a workload until a runtime is enabled.", table(["APPLICATION", "DESIRED STATE", "UPDATED / ACTION"], applicationRows(applications, ["owner", "admin"].includes(currentRole)), "No applications registered in this workspace.")],
+    deployments: ["Deployments", "Queued revisions can be cancelled. Active workload stop requires a node runtime.", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED / ACTION"], deploymentRows(deployments, ["owner", "admin", "operator"].includes(currentRole)), "No deployments recorded in this workspace.")],
     jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")],
     members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")],
     settings: ["Session and workspace settings", "Authentication, session continuity and service configuration", '<div class="settings-grid"><article class="settings-card"><span>AUTHENTICATION</span><h3>Supabase Auth</h3><p>Browser session persistence with automatic token refresh and stale-token recovery.</p><b class="setting-state">Automatic refresh enabled</b></article><article class="settings-card"><span>ACCESS TOKEN</span><h3>' + escapeHtml(state.session?.expires_at ? formatDate(new Date(Number(state.session.expires_at) * 1000)) : "Not available") + '</h3><p>Current access-token expiry. The browser refreshes it before expiry; this is not the overall session end time.</p></article><article class="settings-card"><span>WORKSPACE</span><h3>' + escapeHtml(state.tenants.find((tenant) => tenant.id === state.tenantId)?.name || "No workspace") + '</h3><p>Current role: ' + escapeHtml(currentRole || "Unknown") + '</p></article><article class="settings-card"><span>DATA REFRESH</span><h3>Every 3 seconds</h3><p>Single combined snapshot while this dashboard is active, with bounded retry backoff after network failures.</p></article><article class="settings-card"><span>API PROTECTION</span><h3>600 requests / minute</h3><p>Vercel edge rate limit per source IP for the authenticated control-plane API.</p></article><article class="settings-card"><span>WORKLOAD RUNTIME</span><h3>Not enabled yet</h3><p>Applications and deployment revisions can be registered, but workload execution, isolation and rollback are a later milestone.</p></article></div>']
@@ -299,6 +311,39 @@ function renderPage() {
   $("#table-title").textContent = config[0];
   $("#table-subtitle").textContent = config[1];
   $("#table-content").innerHTML = config[2];
+  $("#table-content").querySelectorAll("[data-application-state]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const id = button.dataset.applicationId;
+        const desiredState = button.dataset.applicationState;
+        const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/applications/" + encodeURIComponent(id) + "/state", {
+          method: "POST", body: JSON.stringify({ desired_state: desiredState })
+        });
+        dashboardMessage("Application desired state updated to " + desiredState + ". Workload runtime is not enabled.");
+        await refreshData({ force: true });
+      } catch (error) {
+        dashboardMessage(error.message || "Unable to update application state.", true);
+        button.disabled = false;
+      }
+    });
+  });
+  $("#table-content").querySelectorAll("[data-deployment-cancel]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const id = button.dataset.deploymentCancel;
+        await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments/" + encodeURIComponent(id) + "/state", {
+          method: "POST", body: JSON.stringify({ desired_state: "stopped" })
+        });
+        dashboardMessage("Queued deployment revision cancelled.");
+        await refreshData({ force: true });
+      } catch (error) {
+        dashboardMessage(error.message || "Unable to cancel deployment revision.", true);
+        button.disabled = false;
+      }
+    });
+  });
   const applicationButton = $("#create-application-button");
   if (applicationButton) applicationButton.hidden = !(state.page === "applications" && ["owner", "admin"].includes(currentRole));
   const deploymentButton = $("#create-deployment-button");
