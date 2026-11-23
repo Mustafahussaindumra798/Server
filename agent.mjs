@@ -6,6 +6,7 @@ import { getCapabilities, getLinuxIdentity, readLinuxMetrics, validateControlPla
 import { defaultStateDirectory, loadAgentState, saveAgentState } from "./src/agent/state.mjs";
 import { detectPodmanRuntime } from "./src/agent/linux.mjs";
 import { PodmanWorkloadRuntime } from "./src/agent/runtime.mjs";
+import { loadNodeTunnelCredentials, startNodeTunnel } from "./src/agent/tunnel.mjs";
 
 export const AGENT_VERSION = "0.1.0";
 const DEFAULT_HEARTBEAT_SECONDS = 3;
@@ -133,12 +134,35 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
   });
 }
 
-export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log, runtimeProbe = detectPodmanRuntime } = {}) {
+export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log, runtimeProbe = detectPodmanRuntime, env = process.env } = {}) {
   getLinuxIdentity();
   if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 3 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 3 and 300 seconds.");
   if (!Number.isInteger(pollSeconds) || pollSeconds < 3 || pollSeconds > 120) throw new Error("Poll interval must be between 3 and 120 seconds.");
   const state = await loadAgentState(stateDirectory);
   const identity = getLinuxIdentity();
+  const tunnelVariables = ["CLOUDEXIFY_TUNNEL_URL", "CLOUDEXIFY_TUNNEL_CA", "CLOUDEXIFY_TUNNEL_CERT", "CLOUDEXIFY_TUNNEL_KEY"];
+  const tunnelConfigured = tunnelVariables.some((key) => Boolean(env[key]));
+  let tunnel = null;
+  if (tunnelConfigured) {
+    if (identity.platform !== "linux" || tunnelVariables.some((key) => !env[key])) {
+      throw new Error("mTLS tunnel requires a qualified Linux node and all four CLOUDEXIFY_TUNNEL_* settings.");
+    }
+    if (!signal) throw new Error("An AbortSignal is required when the node tunnel is enabled.");
+    const credentials = await loadNodeTunnelCredentials({
+      nodeId: state.node_id,
+      caPath: env.CLOUDEXIFY_TUNNEL_CA,
+      certPath: env.CLOUDEXIFY_TUNNEL_CERT,
+      keyPath: env.CLOUDEXIFY_TUNNEL_KEY
+    });
+    tunnel = startNodeTunnel({
+      nodeId: state.node_id,
+      gatewayUrl: env.CLOUDEXIFY_TUNNEL_URL,
+      credentials,
+      signal,
+      onState: (status) => onLog(status === "rejected" ? "error" : "info", "Node mTLS tunnel state changed", { node_id: state.node_id, tunnel_status: status })
+    });
+    onLog("info", "Outbound mTLS tunnel supervisor started", { node_id: state.node_id });
+  }
   let nextHeartbeat = 0;
   let nextPoll = 0;
   let lastCpuMetrics = null;
@@ -220,6 +244,10 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
     const wait = Math.max(250, Math.min(nextHeartbeat, nextPoll) - Date.now());
     try { await sleep(wait, undefined, { signal }); }
     catch (error) { if (!signal?.aborted) throw error; }
+  }
+  if (tunnel) {
+    tunnel.close();
+    await tunnel.done;
   }
   onLog("info", "Linux/Android node agent stopped", { node_id: state.node_id });
 }
