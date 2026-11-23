@@ -53,19 +53,6 @@ BEGIN
     49152, clock_timestamp(), clock_timestamp()
   ) RETURNING id INTO v_deployment;
 
-  INSERT INTO public.deployments (
-    tenant_id, application_id, revision, target_node_id, desired_state, status,
-    image_digest, container_port, resource_requests_json,
-    runtime_local_port, runtime_observed_at, health_checked_at
-  ) VALUES (
-    v_other_tenant, 
-    (SELECT id FROM public.applications WHERE tenant_id = v_tenant LIMIT 1),
-    1, v_node, 'running', 'healthy',
-    'registry.example.test/other@sha256:' || repeat('b', 64), 8080,
-    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}',
-    49153, clock_timestamp(), clock_timestamp()
-  ) ON CONFLICT DO NOTHING;
-
   PERFORM set_config('app.user_id', v_user::text, true);
 
   v_route := app_private.register_deployment_domain_route(v_domain, v_deployment);
