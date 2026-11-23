@@ -55,10 +55,22 @@ Set all four variables in the agent's protected service environment:
 
 The agent validates certificate CN, validity and private-key file permissions before connecting. It validates the gateway certificate and hostname, requires TLS 1.3 and the expected ALPN, and reconnects with exponential backoff capped at 30 seconds. Partial configuration or Android/Termux use fails closed. Do not place private keys in the repository, node JSON state, logs or shell history.
 
+## Signed route-grant authorization foundation
+
+The control plane now exposes a node-authenticated route authorization endpoint:
+
+`GET /api/v1/nodes/{node_id}/routes/{route_id}/grant`
+
+The node must send its existing node credential as a Bearer token. The control plane checks that credential and re-reads the route against the current tenant, verified domain claim, running application, healthy deployment, fresh runtime-local endpoint, exact target node, approved Linux status and fresh heartbeat. It returns a 30-second Ed25519-signed grant containing the route ID/version, tenant, hostname, deployment, exact node ID and a loopback-only upstream port.
+
+The signing key is supplied only to the control plane as `CLOUDEXIFY_ROUTE_GRANT_PRIVATE_KEY`. It must be an Ed25519 private key in PEM form. Never put this private key on a node or in the repository. Nodes will receive only the matching Ed25519 public key through protected agent configuration. The grant format and verifier enforce the exact node identity, short expiry, unique grant ID, route version and `127.0.0.1` upstream. A gateway-provided host or port is never accepted as an authorization source.
+
+The grant endpoint is not enabled until the signing key is configured. The route remains `pending_transport`; this API does not activate public traffic. The verifier is currently a tested protocol primitive and still needs to be connected to tunnel-open handling and the restricted stream forwarder.
+
 ## Current limitations
 
 - The tunnel is an authenticated control channel only. It does not forward HTTP or TCP traffic.
-- No route grant protocol, per-deployment loopback connector, gateway public listener, public DNS routing or customer TLS termination is enabled.
+- Signed route-grant issuance and Ed25519 verification primitives are implemented, but node tunnel-open integration, per-deployment loopback forwarding, gateway public listener, public DNS routing and customer TLS termination are not enabled.
 - Certificate issuance and rotation are operator-managed; automated PKI enrollment is not implemented.
 - A gateway restart drops tunnels; node agents reconnect. No persistent gateway session state is required.
 - Physical Debian 12 x86_64/ARM64 qualification and firewall review are still required.
