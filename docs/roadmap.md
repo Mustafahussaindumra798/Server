@@ -144,9 +144,9 @@
 - [x] Database marks a deployment healthy only when the successful job attempt contains the explicit `workload_healthy` result code and records `health_checked_at`
 - [x] Dashboard/API expose health-check configuration and verification timestamp
 - [x] API, agent, health and PostgreSQL integration tests added for health gates
-- [x] Queue a new immutable rollback revision after terminal deploy failure when a previous health-verified revision and fresh approved node exist (migration 013)
-- [x] Preserve previous image digest, port, health policy and CPU/memory/disk requests in rollback jobs; require rollback's own HTTP health check before marking the failed revision rolled_back
-- [x] Prevent recursive rollback attempts and verify no-previous-revision and rollback-failure behavior in PostgreSQL integration tests
+- [x] On terminal deploy failure, queue a typed restart of the previous health-verified revision on its fresh approved node (migration 013)
+- [x] Preserve the prior revision's container ID, port and health-check policy; mark the failed revision rolled_back only after the restored revision passes its own HTTP health check
+- [x] Avoid duplicate deployment rows/resource reservations; prevent recursive rollback and test no-previous-revision and rollback-failure cases
 - [ ] Verify automatic rollback on a qualified physical Linux node; public traffic switching remains blocked on reverse-proxy ingress/TLS
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
 - [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
