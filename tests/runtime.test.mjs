@@ -8,9 +8,9 @@ const payload = {
   deployment_id: deploymentId,
   image: digest,
   container_port: 8080,
-  resources: { cpu_millicores: 500, memory_bytes: 256 * 1024 * 1024 }
+  resources: { cpu_millicores: 500, memory_bytes: 256 * 1024 * 1024, disk_bytes: 1024 * 1024 * 1024 }
 };
-const qualified = async () => ({ ready: true, rootless: true, cgroup_version: "v2", cgroup_v2_available: true });
+const qualified = async () => ({ ready: true, rootless: true, cgroup_version: "v2", cgroup_v2_available: true, storage_quota: { ready: true } });
 
 test("deployment manifests require immutable OCI digests and bounded resource requests", () => {
   assert.equal(validateDeploymentPayload(payload).container_name, "cloudexify-" + deploymentId);
@@ -28,6 +28,16 @@ test("runtime refuses to execute when rootless Podman and cgroup v2 are not qual
     runCommand: async () => { throw new Error("must not invoke Podman"); }
   });
   await assert.rejects(runtime.deploy(payload), /not qualified/);
+});
+
+test("runtime refuses deployment when per-container storage quota is not qualified", async () => {
+  const calls = [];
+  const runtime = new PodmanWorkloadRuntime({
+    runtimeProbe: async () => ({ ready: true, rootless: true, cgroup_version: "v2", cgroup_v2_available: true, storage_quota: { ready: false } }),
+    runCommand: async (_binary, args) => { calls.push(args); throw new Error("must not invoke Podman"); }
+  });
+  await assert.rejects(runtime.deploy(payload), /storage quotas/);
+  assert.equal(calls.length, 0);
 });
 
 test("deployment starts with bounded, isolated Podman arguments and confirms running state", async () => {
@@ -52,6 +62,7 @@ test("deployment starts with bounded, isolated Podman arguments and confirms run
     assert.ok(runArgs.includes(required), "missing " + required);
   }
   assert.ok(runArgs.includes("127.0.0.1::8080/tcp"));
+  assert.ok(runArgs.includes("--storage-opt=size=1073741824"));
   assert.equal(runArgs.some((arg) => arg.includes("sh -c") || arg.startsWith("--volume")), false);
   const signatureCheck = calls.find((args) => args[0] === "verify");
   assert.deepEqual(signatureCheck, ["verify", "--key", "/etc/cloudexify/trust.pub", digest]);
