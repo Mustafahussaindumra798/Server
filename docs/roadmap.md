@@ -71,8 +71,14 @@
 - [x] Tenant-scoped jobs with idempotency, leases, retries and guarded acknowledgements
 - [x] Linux x86_64/aarch64 diagnostic node agent
 - [x] Android/Termux environment detection and optional battery/thermal metric collection added
+- [x] Agent reports total, used and available RAM; agent-filesystem total/used/available; CPU core count, usage and optional frequency
+- [x] Android shared internal storage total/used/available reported separately when Termux storage permission is granted
+- [x] Heartbeat API validates expanded telemetry allowlist, payload bounds and capacity consistency; admission uses available RAM directly
+- [x] Dashboard node details expose the expanded hardware resource metrics
+- [ ] Verify all reported values against Android Settings and Termux on both physical devices
 - [x] Unit coverage added for Android/Termux identity detection
 - [x] Verify GitHub Actions CI for latest Android/Termux and node-approval commits (run #122)
+- [x] Verify expanded hardware telemetry implementation in GitHub Actions (run #225 passed)
 - [x] Add tenant-scoped Owner/Admin node approval and rejection API
 - [x] Add dashboard Approve/Reject controls for pending nodes
 - [x] Rejection revokes active credentials and writes audit events
