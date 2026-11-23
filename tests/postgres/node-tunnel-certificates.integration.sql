@@ -48,16 +48,7 @@ BEGIN
   END IF;
 
   UPDATE public.node_tunnel_certificates
-     SET revoked_at = clock_timestamp()
-   WHERE id = v_certificate_id;
-  SELECT app_private.authorize_node_tunnel_certificate(v_fingerprint, v_node)
-    INTO v_authorized;
-  IF v_authorized IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'Revoked tunnel certificate was accepted';
-  END IF;
-
-  UPDATE public.node_tunnel_certificates
-     SET revoked_at = NULL, not_after = clock_timestamp() - interval '1 second'
+     SET not_after = clock_timestamp() - interval '1 second'
    WHERE id = v_certificate_id;
   SELECT app_private.authorize_node_tunnel_certificate(v_fingerprint, v_node)
     INTO v_authorized;
@@ -90,6 +81,39 @@ BEGIN
     INTO v_authorized;
   IF v_authorized IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'Suspended tenant tunnel certificate was accepted';
+  END IF;
+
+  UPDATE public.tenants SET status = 'active' WHERE id = v_tenant;
+  UPDATE public.node_tunnel_certificates
+     SET revoked_at = clock_timestamp()
+   WHERE id = v_certificate_id;
+  SELECT app_private.authorize_node_tunnel_certificate(v_fingerprint, v_node)
+    INTO v_authorized;
+  IF v_authorized IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'Revoked tunnel certificate was accepted';
+  END IF;
+
+  BEGIN
+    UPDATE public.node_tunnel_certificates SET revoked_at = NULL WHERE id = v_certificate_id;
+    RAISE EXCEPTION 'Revoked certificate was reactivated';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.audit_events
+     WHERE tenant_id = v_tenant
+       AND resource_type = 'node_tunnel_certificate'
+       AND resource_id = v_certificate_id
+       AND action = 'node.tunnel_certificate.registered'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.audit_events
+     WHERE tenant_id = v_tenant
+       AND resource_type = 'node_tunnel_certificate'
+       AND resource_id = v_certificate_id
+       AND action = 'node.tunnel_certificate.revoked'
+  ) THEN
+    RAISE EXCEPTION 'Tunnel certificate registration/revocation audit event missing';
   END IF;
 END
 $node_tunnel_certificate_test$;
