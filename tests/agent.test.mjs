@@ -233,15 +233,40 @@ test("Podman runtime probe requires rootless mode and cgroup v2", async () => {
       assert.equal(options.timeout, 3000);
       return { stdout: JSON.stringify({
         host: { security: { rootless: true }, cgroupVersion: "v2" },
+        store: { graphDriverName: "overlay" },
         version: { Version: "5.0.1" }
       }) };
     },
-    readCgroupControllers: async () => "cpu memory pids"
+    readCgroupControllers: async () => "cpu memory pids",
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
   });
   assert.deepEqual(runtime, {
     available: true, ready: true, version: "5.0.1", rootless: true,
-    cgroup_version: "v2", cgroup_v2_available: true, reason: null
+    cgroup_version: "v2", cgroup_v2_available: true, graph_driver: "overlay",
+    storage_quota: { available: true, ready: true, enforcement: "podman-overlay-size", reason: null }, reason: null
   });
+});
+
+test("Podman storage quota capability requires overlay and explicit operator attestation", async () => {
+  const base = { host: { security: { rootless: true }, cgroupVersion: "v2" }, store: { graphDriverName: "overlay" }, version: { Version: "5.0.1" } };
+  const ready = await detectPodmanRuntime({
+    runCommand: async () => ({ stdout: JSON.stringify(base) }),
+    readCgroupControllers: async () => "cpu memory pids",
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
+  });
+  assert.equal(ready.storage_quota.ready, true);
+  const unconfigured = await detectPodmanRuntime({
+    runCommand: async () => ({ stdout: JSON.stringify(base) }),
+    readCgroupControllers: async () => "cpu memory pids",
+    env: {}
+  });
+  assert.equal(unconfigured.storage_quota.ready, false);
+  const unsupported = await detectPodmanRuntime({
+    runCommand: async () => ({ stdout: JSON.stringify({ ...base, store: { graphDriverName: "vfs" } }) }),
+    readCgroupControllers: async () => "cpu memory pids",
+    env: { CLOUDEXIFY_STORAGE_QUOTA_READY: "true" }
+  });
+  assert.equal(unsupported.storage_quota.ready, false);
 });
 
 test("Podman runtime probe fails closed when rootless or cgroup v2 requirements are missing", async () => {
@@ -306,6 +331,7 @@ test("agent advertises diagnostics and detected runtime without claiming workloa
   assert.deepEqual(capabilities.diagnostics, ["probe", "collect_metrics"]);
   assert.equal(capabilities.container_runtime, "podman-rootless");
   assert.equal(capabilities.runtime_probe.podman.ready, true);
+  assert.equal(capabilities.runtime_probe.podman.storage_quota.ready, false);
   assert.equal(capabilities.workload_execution, false);
   assert.ok(capabilities.service_manager === null || capabilities.service_manager === "systemd");
 });
