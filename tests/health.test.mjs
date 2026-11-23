@@ -25,7 +25,8 @@ const readySchema = {
   capability_heartbeat_function: true,
   deployment_image_digest: true,
   deployment_container_port: true,
-  deployment_job_reconciliation: true
+  deployment_job_reconciliation: true,
+  deployment_job_cancellation: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -64,6 +65,14 @@ test("health identifies migration 008 when runtime capability heartbeats are not
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["008_runtime_capability_heartbeat"]);
+});
+
+test("health identifies migration 009 when deployment job orchestration is incomplete", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_job_cancellation: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["009_deployment_job_orchestration"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
