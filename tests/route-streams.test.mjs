@@ -246,3 +246,20 @@ test("gateway synchronizes drain state for every connected node", async () => {
   (await resumed).close();
   manager.closeAll();
 });
+
+
+test("stale tunnel disconnect cannot detach a replacement node session", () => {
+  const manager = createRouteStreamManager();
+  const oldSocket = new FakeSocket();
+  const newSocket = new FakeSocket();
+  manager.attachNode({ nodeId, socket: oldSocket });
+  manager.attachNode({ nodeId, socket: newSocket });
+
+  manager.detachNode(nodeId, new Error("old session closed"), oldSocket);
+  assert.equal(manager.hasNode(nodeId), true);
+
+  const pending = manager.openStream({ nodeId, grant: "new-session-grant" });
+  const id = newSocket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  return pending.then((stream) => stream.close());
+});
