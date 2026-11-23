@@ -29,9 +29,11 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
   const pool = {
     async query(sql, params) {
       if (sql.includes("WHERE route.id = $1")) {
+        assert.equal(sql.includes("node.ingress_draining = false"), false, "in-flight revalidation must remain valid while node drains");
         assert.deepEqual(params, [route.route_id, route.route_version, route.node_id, "app.example.test", route.deployment_id, route.local_port]);
         return { rows: [route] };
       }
+      assert.equal(sql.includes("node.ingress_draining = false"), true, "new route lookups must exclude draining nodes");
       assert.deepEqual(params, ["app.example.test"]);
       return { rows: [route] };
     }
