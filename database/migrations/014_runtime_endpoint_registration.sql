@@ -22,9 +22,9 @@ CREATE FUNCTION app_private.acknowledge_node_job(
   p_attempt_id uuid,
   p_lease_token uuid,
   p_status text,
-  p_result_code text DEFAULT NULL,
-  p_result_summary text DEFAULT NULL,
-  p_result_json jsonb DEFAULT '{}'::jsonb
+  p_result_code text,
+  p_result_summary text,
+  p_result_json jsonb
 )
 RETURNS TABLE(job_id uuid, status text, attempt_id uuid, retry_at timestamptz)
 LANGUAGE plpgsql
