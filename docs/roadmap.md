@@ -151,7 +151,13 @@
 - [x] Persist only verified deployment-local port metadata from the active node lease; bind container identity to the deployment UUID and clear the port after confirmed stop (migration 014)
 - [x] Add PostgreSQL tests for endpoint registration, forged container identity rejection and stop cleanup
 - [ ] Verify automatic rollback on a qualified physical Linux node; public traffic switching remains blocked on reverse-proxy ingress/TLS
-- [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
+- [x] Define secure multi-node ingress architecture: public gateway, node-initiated authenticated reverse tunnels, strict tenant/deployment route binding and fail-closed lifecycle (design decision only; no public ingress enabled)
+- [ ] Implement tenant-scoped domain claims, DNS ownership verification and auditable challenge lifecycle
+- [ ] Implement route registry derived only from healthy, fresh deployment endpoints
+- [ ] Implement per-node outbound mTLS tunnel and restricted loopback-only forwarder
+- [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
+- [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
+- [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
 - [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
 - [x] Read Podman GraphRoot free space and perform disk admission against the actual container-storage filesystem
 - [ ] Implement persistent application volumes, storage lifecycle and backup/restore
