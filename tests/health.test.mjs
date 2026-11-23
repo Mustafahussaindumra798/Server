@@ -42,6 +42,8 @@ const readySchema = {
   domain_claims_table: true,
   domain_challenges_table: true,
   deployment_domain_routes_table: true,
+  node_tunnel_certificates_table: true,
+  node_tunnel_certificate_authorizer: true,
   deployment_domain_route_register_function: true,
   deployment_domain_route_reconcile_function: true,
   domain_verify_function: true,
@@ -67,7 +69,8 @@ test("health reports ready only when the existing control-plane schema is comple
     automatic_deployment_rollback: "ready",
     runtime_endpoint_registration: "ready",
     domain_claims: "ready",
-    deployment_domain_route_registry: "pending_transport_only"
+    deployment_domain_route_registry: "pending_transport_only",
+    node_tunnel_authorization: "mTLS_certificate_registry_ready_forwarding_disabled"
   });
 });
 
@@ -155,6 +158,14 @@ test("health identifies migration 016 when the deployment domain route registry 
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["016_deployment_domain_route_registry"]);
+});
+
+test("health identifies migration 017 when the node tunnel certificate registry is missing", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, node_tunnel_certificates_table: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["017_node_tunnel_certificates"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
