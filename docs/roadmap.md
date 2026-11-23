@@ -157,7 +157,7 @@
 - [x] Implement tenant-scoped domain list/detail/create APIs; owner/admin mutation permissions; canonical IDNA hostname validation; 256-bit random one-time TXT challenges with SHA-256-only persistence and 30-minute expiry
 - [x] Verify exact DNS TXT challenge values through the DNS resolver; reject mismatch/replay, report missing records, handle resolver failure, and audit successful verification
 - [x] Add domain API/RBAC/health tests and API contract documentation (`docs/domain-management-api.md`)
-- [ ] Implement route registry derived only from healthy, fresh deployment endpoints
+- [x] Add internal deployment-to-domain route registry with tenant-bound composite references, verified-domain and healthy/fresh endpoint checks, approved Linux node checks, lifecycle suspension/recovery, audit events and PostgreSQL integration coverage (migration 016); routes remain pending transport and cannot be activated
 - [ ] Implement per-node outbound mTLS tunnel and restricted loopback-only forwarder
 - [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
