@@ -113,7 +113,7 @@ INSERT INTO domain_verification_challenges (
   id, domain_claim_id, tenant_id, token_hash, record_name, expires_at
 ) VALUES (
   '72000000-0000-4000-8000-000000000011',
-  '71000000-0000-4000-8000-000000000001',
+  '71000000-0000-4000-8000-000000000011',
   '20000000-0000-4000-8000-000000000001',
   repeat('a', 64),
   '_cloudexify-verify.app.example.test',
