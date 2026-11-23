@@ -91,3 +91,51 @@ test("gateway sends stream-scoped pause and resume frames to the owning node", a
   manager.detachNode(nodeId);
   assert.equal(manager.hasNode(nodeId), false);
 });
+
+test("gateway drains existing node streams and rejects new streams", async () => {
+  const manager = createRouteStreamManager();
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  const stream = await pending;
+
+  const draining = manager.drainNode(nodeId, { timeoutMs: 5000 });
+  assert.equal(manager.hasNode(nodeId), true);
+  await assert.rejects(manager.openStream({ nodeId, grant: "new-grant" }), /draining/);
+  stream.close();
+
+  assert.deepEqual(await draining, { drained: true, activeStreams: 0 });
+  assert.equal(manager.hasNode(nodeId), true);
+  assert.equal(manager.activeStreams, 0);
+});
+
+test("gateway forcibly detaches a node when graceful route drain times out", async () => {
+  let timeoutCallback;
+  const manager = createRouteStreamManager({
+    setTimeoutImpl(callback) {
+      timeoutCallback = callback;
+      return { unref() {} };
+    },
+    clearTimeoutImpl() {}
+  });
+  const socket = new FakeSocket();
+  manager.attachNode({ nodeId, socket });
+  const pending = manager.openStream({ nodeId, grant: "grant" });
+  const id = socket.frames[0].stream_id;
+  manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
+  const stream = await pending;
+  let closeError;
+  stream.close = () => {};
+  const originalOpen = manager.activeStreams;
+  assert.equal(originalOpen, 1);
+
+  const draining = manager.drainNode(nodeId, { timeoutMs: 5000 });
+  assert.equal(typeof timeoutCallback, "function");
+  timeoutCallback();
+  assert.deepEqual(await draining, { drained: false, activeStreams: 1 });
+  assert.equal(manager.hasNode(nodeId), false);
+  assert.equal(manager.activeStreams, 0);
+  assert.equal(closeError, undefined);
+});
