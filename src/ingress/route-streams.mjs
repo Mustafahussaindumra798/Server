@@ -28,13 +28,20 @@ export function createRouteStreamManager({
   maxStreamsPerNode = MAX_STREAMS_PER_NODE,
   openTimeoutMs = 10000,
   onStreamData = () => {},
-  onStreamClose = () => {}
+  onStreamClose = () => {},
+  drainTimeoutMs = 30000,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout
 } = {}) {
   if (!Number.isInteger(maxStreamsPerNode) || maxStreamsPerNode < 1 || maxStreamsPerNode > MAX_STREAMS_PER_NODE) {
     throw new Error("Gateway per-node stream limit is invalid.");
   }
   if (!Number.isInteger(openTimeoutMs) || openTimeoutMs < 1000 || openTimeoutMs > 60000) {
     throw new Error("Gateway stream-open timeout is invalid.");
+  }
+  if (!Number.isInteger(drainTimeoutMs) || drainTimeoutMs < 1000 || drainTimeoutMs > 120000 ||
+      typeof setTimeoutImpl !== "function" || typeof clearTimeoutImpl !== "function") {
+    throw new Error("Gateway route drain timeout configuration is invalid.");
   }
 
   const nodes = new Map();
@@ -44,7 +51,10 @@ export function createRouteStreamManager({
     if (!streams.has(stream.id)) return;
     streams.delete(stream.id);
     const node = nodes.get(stream.nodeId);
-    if (node) node.streamIds.delete(stream.id);
+    if (node) {
+      node.streamIds.delete(stream.id);
+      if (node.draining && node.streamIds.size === 0) node.drainResolve?.();
+    }
     clearTimeout(stream.timer);
     for (const listener of stream.drainCallbacks) stream.socket.off?.("drain", listener);
     stream.drainCallbacks.clear();
@@ -64,7 +74,7 @@ export function createRouteStreamManager({
       throw new Error("Authenticated node ID and tunnel socket are required.");
     }
     detachNode(nodeId, new Error("Node tunnel session replaced."));
-    nodes.set(nodeId, { socket, streamIds: new Set() });
+    nodes.set(nodeId, { socket, streamIds: new Set(), draining: false, drainResolve: null });
   }
 
   function detachNode(nodeId, reason = new Error("Node tunnel disconnected.")) {
@@ -80,6 +90,7 @@ export function createRouteStreamManager({
   function openStream({ nodeId, grant, onData = onStreamData, onClose = onStreamClose }) {
     const node = nodes.get(nodeId);
     if (!node || node.socket.destroyed) return Promise.reject(new Error("No authenticated tunnel is available for this node."));
+    if (node.draining) return Promise.reject(new Error("Node route streams are draining; new streams are not accepted."));
     if (node.streamIds.size >= maxStreamsPerNode) return Promise.reject(new Error("Node route stream capacity is exhausted."));
     if (typeof grant !== "string" || grant.length < 1 || grant.length > 8192) return Promise.reject(new Error("Signed route grant is invalid."));
     const id = randomUUID().replace(/-/g, "");
@@ -161,6 +172,37 @@ export function createRouteStreamManager({
     return false;
   }
 
+  async function drainNode(nodeId, { timeoutMs = drainTimeoutMs } = {}) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) {
+      throw new Error("Node route drain timeout is invalid.");
+    }
+    const node = nodes.get(nodeId);
+    if (!node || node.socket.destroyed) return { drained: true, activeStreams: 0 };
+    node.draining = true;
+    if (node.streamIds.size === 0) return { drained: true, activeStreams: 0 };
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finishDrain = (drained) => {
+        if (settled) return;
+        settled = true;
+        clearTimeoutImpl(timer);
+        if (node.drainResolve === onStreamsDrained) node.drainResolve = null;
+        const activeStreams = node.streamIds.size;
+        if (!drained && nodes.get(nodeId) === node) {
+          detachNode(nodeId, new Error("Node route drain timed out."));
+        }
+        resolve({ drained, activeStreams: drained ? 0 : activeStreams });
+      };
+      const onStreamsDrained = () => finishDrain(true);
+      node.drainResolve = onStreamsDrained;
+      timer = setTimeoutImpl(() => finishDrain(false), timeoutMs);
+      timer?.unref?.();
+      if (node.streamIds.size === 0) onStreamsDrained();
+    });
+  }
+
   function closeAll() {
     for (const nodeId of [...nodes.keys()]) detachNode(nodeId, new Error("Gateway route manager stopped."));
   }
@@ -168,6 +210,7 @@ export function createRouteStreamManager({
   return {
     attachNode,
     detachNode,
+    drainNode,
     openStream,
     handleNodeMessage,
     closeAll,
