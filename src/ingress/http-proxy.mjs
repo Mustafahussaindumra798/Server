@@ -45,20 +45,28 @@ class TunnelDuplex extends Duplex {
     this.route = null;
     this.connecting = true;
     this.encrypted = false;
+    this.upstreamPaused = false;
   }
   attach(route) {
     this.route = route;
     this.connecting = false;
-    this.emit("connect");
   }
   receive(data) {
-    if (!this.destroyed && !this.push(data)) this.route?.pause();
+    if (!this.destroyed && !this.push(data) && !this.upstreamPaused) {
+      this.upstreamPaused = true;
+      try { this.route?.pause(); } catch (error) { this.destroy(error); }
+    }
   }
   remoteClose(error = null) {
     if (error) this.destroy(error);
     else this.push(null);
   }
-  _read() { this.route?.resume(); }
+  _read() {
+    if (this.upstreamPaused) {
+      this.upstreamPaused = false;
+      try { this.route?.resume(); } catch (error) { this.destroy(error); }
+    }
+  }
   _write(chunk, _encoding, callback) {
     if (!this.route) { callback(new Error("Tunnel route is not connected.")); return; }
     try {
@@ -185,6 +193,7 @@ export function createIngressRequestHandler({
         routeStream = opened;
         tunnel.attach(opened);
         callback(null, tunnel);
+        tunnel.emit("connect");
       }).catch((error) => {
         tunnel.destroy(error);
         callback(error);
