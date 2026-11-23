@@ -50,7 +50,36 @@ export async function readCpuPercent({ procRoot = "/proc", delay = (ms) => new P
   return Math.round(Math.max(0, Math.min(100, (1 - idle / total) * 100)) * 10) / 10;
 }
 
-export async function readLinuxMetrics({ procRoot = "/proc", diskPath = "/" } = {}) {
+async function readFilesystemMetrics(targetPath) {
+  const disk = await statfs(targetPath);
+  const total = Number(disk.blocks) * Number(disk.bsize);
+  const free = Number(disk.bfree) * Number(disk.bsize);
+  const available = Number(disk.bavail) * Number(disk.bsize);
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(free) || free < 0 || free > total ||
+      !Number.isFinite(available) || available < 0 || available > total) return null;
+  return { total, used: total - free, available };
+}
+
+async function readCpuFrequencyMhz() {
+  for (const file of [
+    "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq",
+    "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_cur_freq",
+    "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"
+  ]) {
+    try {
+      const khz = Number((await readFile(file, "utf8")).trim());
+      if (Number.isFinite(khz) && khz > 0 && khz <= 10000000) return Math.round(khz / 100) / 10;
+    } catch { /* frequency sysfs is optional and often restricted on Android */ }
+  }
+  return null;
+}
+
+export async function readLinuxMetrics({
+  procRoot = "/proc",
+  diskPath = process.env.PREFIX || "/",
+  androidSharedStoragePath = "/storage/emulated/0",
+  isAndroid = Boolean(process.env.TERMUX_VERSION || process.env.PREFIX?.startsWith("/data/data/com.termux/files/usr"))
+} = {}) {
   const parallelism = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
   const metrics = { uptime_seconds: Math.max(0, Math.floor(os.uptime())), cpu_cores: Math.max(1, Math.min(256, Math.floor(parallelism))) };
   try {
@@ -60,22 +89,34 @@ export async function readLinuxMetrics({ procRoot = "/proc", diskPath = "/" } = 
       return match ? [match[1], Number(match[2]) * 1024] : null;
     }).filter(Boolean));
     if (Number.isFinite(values.MemTotal) && values.MemTotal > 0) {
-      metrics.memory_total_bytes = values.MemTotal;
       const available = Number.isFinite(values.MemAvailable) ? values.MemAvailable : values.MemFree;
       if (Number.isFinite(available) && available >= 0 && available <= values.MemTotal) {
+        metrics.memory_total_bytes = values.MemTotal;
+        metrics.memory_available_bytes = available;
         metrics.memory_used_bytes = values.MemTotal - available;
       }
     }
   } catch { /* unavailable metrics are omitted, never fabricated */ }
   try {
-    const disk = await statfs(diskPath);
-    const total = Number(disk.blocks) * Number(disk.bsize);
-    const available = Number(disk.bavail) * Number(disk.bsize);
-    if (Number.isFinite(total) && total > 0 && Number.isFinite(available) && available >= 0 && available <= total) {
-      metrics.disk_total_bytes = total;
-      metrics.disk_available_bytes = available;
+    const disk = await readFilesystemMetrics(diskPath);
+    if (disk) {
+      metrics.disk_total_bytes = disk.total;
+      metrics.disk_used_bytes = disk.used;
+      metrics.disk_available_bytes = disk.available;
     }
   } catch { /* unavailable metrics are omitted */ }
+  if (isAndroid) {
+    try {
+      const shared = await readFilesystemMetrics(androidSharedStoragePath);
+      if (shared) {
+        metrics.android_shared_storage_total_bytes = shared.total;
+        metrics.android_shared_storage_used_bytes = shared.used;
+        metrics.android_shared_storage_available_bytes = shared.available;
+      }
+    } catch { /* Android shared storage requires user-granted storage access */ }
+  }
+  const frequency = await readCpuFrequencyMhz();
+  if (frequency !== null) metrics.cpu_frequency_mhz = frequency;
   const load = os.loadavg()[0];
   if (Number.isFinite(load) && load >= 0) metrics.load_1m = Math.round(load * 100) / 100;
   try {
