@@ -320,7 +320,7 @@ function renderPage() {
         const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/applications/" + encodeURIComponent(id) + "/state", {
           method: "POST", body: JSON.stringify({ desired_state: desiredState })
         });
-        dashboardMessage("Application desired state updated to " + desiredState + ". Workload runtime is not enabled.");
+        dashboardMessage("Application desired state updated to " + desiredState + "; " + Number(result.cancelled_deployments || 0) + " queued deployment(s) cancelled. Workload runtime is not enabled.");
         await refreshData({ force: true });
       } catch (error) {
         dashboardMessage(error.message || "Unable to update application state.", true);
