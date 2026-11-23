@@ -49,7 +49,8 @@ BEGIN
   IF v_job.id IS NULL
      OR v_job.payload_json->>'image' <> v_digest
      OR v_job.payload_json->>'health_check_path' <> '/healthz'
-     OR (v_job.payload_json->'resources'->>'cpu_millicores')::integer <> 500 THEN
+     OR (v_job.payload_json->'resources'->>'cpu_millicores')::integer <> 500
+     OR (v_job.payload_json->'resources'->>'disk_bytes')::bigint <> 1073741824 THEN
     RAISE EXCEPTION 'Recovery deploy job did not preserve the immutable deployment manifest';
   END IF;
 
