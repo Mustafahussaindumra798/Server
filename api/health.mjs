@@ -62,6 +62,12 @@ export function createHealthHandler(databasePool) {
             WHERE table_schema = 'public' AND table_name = 'deployments'
               AND column_name = 'health_checked_at'
           ) AS deployment_health_checked_at,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'rollback_of_deployment_id'
+          ) AS deployment_automatic_rollback,
+          COALESCE(position('deployment.rollback.queued' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_rollback_reconciliation,
           COALESCE(position('workload_healthy' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_health_reconciliation,
           COALESCE(position('workload_stopped' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_stop_reconciliation,
           COALESCE(position('restarting' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_restart_reconciliation,
@@ -93,8 +99,9 @@ export function createHealthHandler(databasePool) {
       const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at && schema.deployment_health_reconciliation;
       const deploymentLifecycleReady = schema.deployment_stop_reconciliation && schema.deployment_restart_reconciliation;
       const runtimeReconciliationReady = schema.runtime_reconciliation_function;
+      const deploymentRollbackReady = schema.deployment_automatic_rollback && schema.deployment_rollback_reconciliation;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -107,7 +114,8 @@ export function createHealthHandler(databasePool) {
             ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : []),
             ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : []),
             ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : []),
-            ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : [])
+            ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : []),
+            ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : [])
           ]
         }));
         return;
@@ -124,7 +132,8 @@ export function createHealthHandler(databasePool) {
         deployment_job_orchestration: "ready",
         deployment_health_checks: "ready",
         deployment_lifecycle_jobs: "ready",
-        durable_runtime_reconciliation: "ready"
+        durable_runtime_reconciliation: "ready",
+        automatic_deployment_rollback: "ready"
       }));
     } catch {
       response.statusCode = 503;
