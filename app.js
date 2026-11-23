@@ -465,8 +465,8 @@ async function init() {
   });
   $("#table-content").addEventListener("click", async (event) => {
     const row = event.target.closest("[data-node-open]");
-    if (row && !event.target.closest("[data-node-action]")) { state.selectedNodeId = row.dataset.nodeOpen; renderNodeDetails(state.selectedNodeId); return; }
-    const button = event.target.closest("[data-node-action]");
+    if (row && !event.target.closest("[data-node-action], [data-node-ingress-state]")) { state.selectedNodeId = row.dataset.nodeOpen; renderNodeDetails(state.selectedNodeId); return; }
+    const button = event.target.closest("[data-node-action], [data-node-ingress-state]");
     if (!button || button.disabled) return;
     const action = button.dataset.nodeAction;
     const ingressState = button.dataset.nodeIngressState;
