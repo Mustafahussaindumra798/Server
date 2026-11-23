@@ -102,6 +102,36 @@ function validateJobPayload(type, payload) {
   return {};
 }
 
+
+function validateResourceRequests(value) {
+  const input = value == null ? {} : value;
+  if (!input || Array.isArray(input) || typeof input !== "object") {
+    const error = new Error("resource_requests must be a JSON object.");
+    error.status = 400;
+    throw error;
+  }
+  const allowed = new Set(["cpu_millicores", "memory_bytes", "disk_bytes"]);
+  if (Object.keys(input).some((key) => !allowed.has(key))) {
+    const error = new Error("resource_requests supports cpu_millicores, memory_bytes and disk_bytes only.");
+    error.status = 400;
+    throw error;
+  }
+  const result = {
+    cpu_millicores: input.cpu_millicores == null ? 250 : input.cpu_millicores,
+    memory_bytes: input.memory_bytes == null ? 268435456 : input.memory_bytes,
+    disk_bytes: input.disk_bytes == null ? 1073741824 : input.disk_bytes
+  };
+  const bounds = { cpu_millicores: [50, 64000], memory_bytes: [16777216, 1099511627776], disk_bytes: [16777216, 1099511627776] };
+  for (const [key, [minimum, maximum]] of Object.entries(bounds)) {
+    if (!Number.isSafeInteger(result[key]) || result[key] < minimum || result[key] > maximum) {
+      const error = new Error(key + " must be an integer between " + minimum + " and " + maximum + ".");
+      error.status = 400;
+      throw error;
+    }
+  }
+  return result;
+}
+
 function nodeCredential(request) {
   return String(request.headers.authorization || "").match(/^Bearer ([A-Za-z0-9_-]{40,128})$/)?.[1] || null;
 }
@@ -185,8 +215,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (!["healthy", "degraded"].includes(body.health_status)) { const error = new Error("health_status must be healthy or degraded."); error.status = 400; throw error; }
         const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
         const resources = body.resources == null ? {} : body.resources;
-        const allowed = new Set(["cpu_percent","memory_total_bytes","memory_used_bytes","disk_total_bytes","disk_available_bytes","load_1m","uptime_seconds","battery_percent","temperature_c"]);
-        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 9 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100))) {
+        const allowed = new Set(["cpu_percent","memory_total_bytes","memory_used_bytes","disk_total_bytes","disk_available_bytes","load_1m","uptime_seconds","battery_percent","temperature_c","cpu_cores"]);
+        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 9 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100) || (key === "cpu_cores" && (value < 1 || value > 256 || !Number.isInteger(value))))) {
           const error = new Error("resources must contain only supported finite numeric metrics within their allowed ranges (8 KiB maximum)."); error.status = 400; throw error;
         }
         const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
@@ -454,7 +484,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (resource === "applications" && request.method === "GET") {
           requirePermission(role, "read");
           const applications = await client.query(
-            "SELECT id, tenant_id, name, desired_state, created_by, created_at, updated_at FROM applications WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            "SELECT id, tenant_id, name, desired_state, resource_requests_json AS resource_requests, created_by, created_at, updated_at FROM applications WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
             [tenantId]
           );
           return { status: 200, body: { applications: applications.rows } };
@@ -464,9 +494,10 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           requirePermission(role, "manageApplications");
           const body = await readJson(request);
           const name = requireText(body.name, "name", 100);
+          const resourceRequests = validateResourceRequests(body.resource_requests);
           const created = await client.query(
-            "INSERT INTO applications (tenant_id, name, created_by) VALUES ($1, $2, $3) RETURNING id, tenant_id, name, desired_state, created_by, created_at",
-            [tenantId, name, user.id]
+            "INSERT INTO applications (tenant_id, name, resource_requests_json, created_by) VALUES ($1, $2, $3::jsonb, $4) RETURNING id, tenant_id, name, desired_state, resource_requests_json AS resource_requests, created_by, created_at",
+            [tenantId, name, JSON.stringify(resourceRequests), user.id]
           );
           await audit(client, tenantId, user.id, "application.created", "application", created.rows[0].id);
           return { status: 201, body: { application: created.rows[0] } };
@@ -485,20 +516,158 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           requirePermission(role, "operateDeployments");
           const body = await readJson(request);
           const applicationId = requireUuid(body.application_id, "application_id");
-          const targetNodeId = body.target_node_id == null ? null : requireUuid(body.target_node_id, "target_node_id");
+          const requestedNodeId = body.target_node_id == null ? null : requireUuid(body.target_node_id, "target_node_id");
           const desiredState = body.desired_state;
           if (!["running", "stopped"].includes(desiredState)) {
             const error = new Error("desired_state must be running or stopped.");
             error.status = 400;
             throw error;
           }
+          const application = await client.query(
+            "SELECT id, resource_requests_json FROM applications WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            [applicationId, tenantId]
+          );
+          if (!application.rows[0]) { const error = new Error("Application not found."); error.status = 404; throw error; }
+          const resourceRequests = validateResourceRequests(application.rows[0].resource_requests_json);
+          let targetNodeId = requestedNodeId;
+          let placement = "stopped";
+          if (desiredState === "running") {
+            const placementResult = await client.query(`
+              SELECT node.id,
+                (node.capabilities_json->>'cpu_cores')::integer AS cpu_cores,
+                node.resource_metrics_json AS resources
+              FROM nodes AS node
+              WHERE node.tenant_id = $1
+                AND node.approved_at IS NOT NULL
+                AND node.status IN ('online', 'degraded')
+                AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
+                AND node.resource_metrics_json ?& ARRAY['cpu_percent','memory_total_bytes','memory_used_bytes','disk_available_bytes']
+                AND (node.capabilities_json->>'cpu_cores') ~ '^[1-9][0-9]*
+        }
+
+        if (resource === "enrollment-tokens" && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const body = await readJson(request);
+          const lifetime = body.expires_in_minutes == null ? 30 : body.expires_in_minutes;
+          if (!Number.isInteger(lifetime) || lifetime < 5 || lifetime > 1440) { const error = new Error("expires_in_minutes must be an integer between 5 and 1440."); error.status = 400; throw error; }
+          const rawToken = randomBytes(32).toString("base64url");
+          const tokenHash = createHash("sha256").update(rawToken, "utf8").digest("hex");
+          const created = await client.query("INSERT INTO enrollment_tokens (tenant_id, token_hash, expires_at, created_by) VALUES ($1, $2, now() + ($3 * interval '1 minute'), $4) RETURNING id, expires_at", [tenantId, tokenHash, lifetime, user.id]);
+          await audit(client, tenantId, user.id, "node.enrollment_token.created", "enrollment_token", created.rows[0].id, { expires_in_minutes: lifetime });
+          return { status: 201, body: { enrollment_token: { id: created.rows[0].id, token: rawToken, expires_at: created.rows[0].expires_at } } };
+        }
+
+        if (resource === "nodes" && route[3] && route[4] && request.method === "POST") {
+          requirePermission(role, "manageNodes");
+          const revoked = await client.query("UPDATE node_credentials AS credential SET revoked_at = now() FROM nodes AS node WHERE credential.id = $1 AND credential.node_id = $2 AND node.id = $2 AND node.tenant_id = $3 AND credential.revoked_at IS NULL RETURNING credential.id, credential.revoked_at", [route[4], route[3], tenantId]);
+          if (!revoked.rows[0]) { const error = new Error("Node credential not found or already revoked."); error.status = 404; throw error; }
+          const active = await client.query("SELECT count(*)::integer AS active_count FROM node_credentials WHERE node_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())", [route[3]]);
+          const nodeStatus = Number(active.rows[0]?.active_count || 0) === 0 ? "revoked" : "unchanged";
+          if (nodeStatus === "revoked") await client.query("UPDATE nodes SET status = 'revoked' WHERE id = $1 AND tenant_id = $2", [route[3], tenantId]);
+          await audit(client, tenantId, user.id, "node.credential.revoked", "node_credential", revoked.rows[0].id, { node_id: route[3] });
+          return { status: 200, body: { credential: { id: revoked.rows[0].id, revoked_at: revoked.rows[0].revoked_at }, node_status: nodeStatus } };
+        }
+
+        if (resource === "members" && request.method === "GET") {
+          requirePermission(role, "read");
+          const members = await client.query(
+            "SELECT user_id, role, status, created_at FROM tenant_memberships WHERE tenant_id = $1 ORDER BY created_at",
+            [tenantId]
+          );
+          return { status: 200, body: { members: members.rows } };
+        }
+
+        if (resource === "members" && request.method === "POST") {
+          requirePermission(role, "manageMembers");
+          const body = await readJson(request);
+          const userId = requireUuid(body.user_id, "user_id");
+          if (!canAssignRole(role, body.role)) throw new AuthorizationError("This role cannot be assigned by your tenant role.");
+          const existing = await client.query("SELECT 1 FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2", [tenantId, userId]);
+          if (existing.rowCount) {
+            const error = new Error("This user already has a membership in the tenant.");
+            error.status = 409;
+            throw error;
+          }
+          await client.query(
+            "INSERT INTO tenant_memberships (tenant_id, user_id, role, status) VALUES ($1, $2, $3, 'active')",
+            [tenantId, userId, body.role]
+          );
+          await audit(client, tenantId, user.id, "membership.created", "tenant_membership", userId, { role: body.role });
+          return { status: 201, body: { membership: { tenant_id: tenantId, user_id: userId, role: body.role, status: "active" } } };
+        }
+
+        const error = new Error("API route not found.");
+        error.status = 404;
+        throw error;
+      });
+
+      send(response, result.status, result.body, requestId);
+    } catch (error) {
+      const status = Number.isInteger(error.status) ? error.status : 500;
+      if (status >= 500) logger.error?.("API request failed", { request_id: requestId, error: error.message });
+      const code = status === 401 ? "UNAUTHENTICATED" :
+        status === 403 ? (error.code || "FORBIDDEN") :
+        status === 404 ? "NOT_FOUND" :
+        status === 405 ? "METHOD_NOT_ALLOWED" :
+        status === 409 ? "CONFLICT" :
+        status === 413 ? "PAYLOAD_TOO_LARGE" :
+        status === 415 ? "UNSUPPORTED_MEDIA_TYPE" :
+        status === 400 ? "BAD_REQUEST" :
+        status === 503 ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR";
+      const message = status >= 500 ? (status === 503 ? error.message : "The request could not be completed.") : error.message;
+      send(response, status, { error: { code, message, request_id: requestId } }, requestId);
+    }
+    return true;
+  };
+}
+
+                AND (node.capabilities_json->>'cpu_cores')::integer BETWEEN 1 AND 256
+                AND (node.resource_metrics_json->>'cpu_percent')::numeric < 85
+                AND ((node.capabilities_json->>'cpu_cores')::bigint * 1000 -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $2
+                AND ((node.resource_metrics_json->>'memory_total_bytes')::bigint -
+                     (node.resource_metrics_json->>'memory_used_bytes')::bigint -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'memory_bytes')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $3
+                AND ((node.resource_metrics_json->>'disk_available_bytes')::bigint -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'disk_bytes')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id
+                      AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) >= $4
+                AND ($5::uuid IS NULL OR node.id = $5)
+              ORDER BY
+                ((node.capabilities_json->>'cpu_cores')::bigint * 1000 -
+                  COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
+                    FROM deployments AS deployment
+                    WHERE deployment.target_node_id = node.id AND deployment.desired_state = 'running'
+                      AND deployment.status IN ('queued','scheduled','deploying','healthy')), 0)) ASC,
+                node.id ASC
+              FOR UPDATE OF node SKIP LOCKED
+              LIMIT 1
+            `, [tenantId, resourceRequests.cpu_millicores, resourceRequests.memory_bytes, resourceRequests.disk_bytes, requestedNodeId]);
+            if (!placementResult.rows[0]) {
+              const error = new Error("No eligible node has fresh telemetry and sufficient unreserved CPU, memory and disk capacity.");
+              error.status = 409;
+              throw error;
+            }
+            targetNodeId = placementResult.rows[0].id;
+            placement = "capacity_admitted";
+          }
           const revision = await client.query("SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision FROM deployments WHERE tenant_id = $1 AND application_id = $2", [tenantId, applicationId]);
           const created = await client.query(
-            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, created_by, created_at",
-            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, user.id]
+            "INSERT INTO deployments (tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at",
+            [tenantId, applicationId, Number(revision.rows[0].next_revision), targetNodeId, desiredState, desiredState === "running" ? "scheduled" : "queued", JSON.stringify(resourceRequests), user.id]
           );
-          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState });
-          return { status: 201, body: { deployment: created.rows[0] } };
+          await audit(client, tenantId, user.id, "deployment.requested", "deployment", created.rows[0].id, { desired_state: desiredState, placement, target_node_id: targetNodeId, resource_requests: resourceRequests });
+          return { status: 201, body: { deployment: created.rows[0], runtime_enabled: false } };
         }
 
         if (resource === "enrollment-tokens" && request.method === "POST") {
