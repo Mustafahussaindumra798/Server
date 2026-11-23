@@ -577,34 +577,80 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (resource === "deployments" && route[3] && route[6] === "state" && request.method === "POST") {
           requirePermission(role, "operateDeployments");
           const body = await readJson(request);
-          if (body.desired_state !== "stopped") {
-            const error = new Error("An existing revision can only be cancelled. Create a new deployment revision to request running state.");
+          if (!["running", "stopped"].includes(body.desired_state)) {
+            const error = new Error("desired_state must be running or stopped.");
             error.status = 400;
             throw error;
           }
           const deploymentId = requireUuid(route[3], "deployment_id");
-          const current = await client.query(
-            "SELECT id, desired_state, status FROM deployments WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+          const currentResult = await client.query(
+            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, container_port, health_check_path, health_check_timeout_seconds, image_digest FROM deployments WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
             [deploymentId, tenantId]
           );
-          if (!current.rows[0]) { const error = new Error("Deployment not found."); error.status = 404; throw error; }
-          if (current.rows[0].desired_state === "stopped" && current.rows[0].status === "cancelled") {
-            return { status: 200, body: { deployment: current.rows[0], runtime_enabled: false } };
+          const current = currentResult.rows[0];
+          if (!current) { const error = new Error("Deployment not found."); error.status = 404; throw error; }
+
+          if (body.desired_state === "stopped") {
+            if (current.desired_state === "stopped" && ["cancelled", "stopped"].includes(current.status)) {
+              return { status: 200, body: { deployment: current, runtime_job_queued: false, runtime_enabled: false } };
+            }
+            if (["queued", "scheduled"].includes(current.status)) {
+              const updated = await client.query(
+                "UPDATE deployments SET desired_state = 'stopped', status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, health_check_path, health_check_timeout_seconds, health_checked_at, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
+                [deploymentId, tenantId]
+              );
+              await audit(client, tenantId, user.id, "deployment.cancelled", "deployment", deploymentId, { previous_status: current.status, desired_state: "stopped" });
+              return { status: 200, body: { deployment: updated.rows[0], runtime_job_queued: false, runtime_enabled: false } };
+            }
+            if (current.status === "stopping") {
+              return { status: 200, body: { deployment: current, runtime_job_queued: true, runtime_enabled: false } };
+            }
+            if (!["deploying", "healthy", "restarting", "failed"].includes(current.status) || !current.target_node_id) {
+              const error = new Error("This deployment cannot be stopped from its current state or has no assigned node.");
+              error.status = 409;
+              throw error;
+            }
+            const updated = await client.query(
+              "UPDATE deployments SET desired_state = 'stopped', status = 'stopping', updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, health_check_path, health_check_timeout_seconds, health_checked_at, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
+              [deploymentId, tenantId]
+            );
+            const job = await client.query(
+              "INSERT INTO jobs (tenant_id, node_id, deployment_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, 'stop', $4::jsonb, $5) RETURNING id, status",
+              [tenantId, current.target_node_id, deploymentId, JSON.stringify({ deployment_id: deploymentId }), "deployment:" + deploymentId + ":stop:" + randomUUID()]
+            );
+            if (!job.rows[0]) { const error = new Error("Stop job could not be queued."); error.status = 503; throw error; }
+            await audit(client, tenantId, user.id, "deployment.stop.queued", "deployment", deploymentId, { job_id: job.rows[0].id, node_id: current.target_node_id });
+            return { status: 200, body: { deployment: updated.rows[0], job: job.rows[0], runtime_job_queued: true, runtime_enabled: false } };
           }
-          if (!["queued", "scheduled"].includes(current.rows[0].status)) {
-            const error = new Error("This revision has progressed beyond the cancellable queue. A node runtime is required to stop an active workload safely.");
+
+          if (current.status === "healthy" && current.desired_state === "running") {
+            return { status: 200, body: { deployment: current, runtime_job_queued: false, runtime_enabled: false } };
+          }
+          if (current.status === "restarting") {
+            return { status: 200, body: { deployment: current, runtime_job_queued: true, runtime_enabled: false } };
+          }
+          if (current.status !== "stopped" || !current.target_node_id || !Number.isInteger(current.container_port)) {
+            const error = new Error("Only a stopped revision with an assigned node and container port can be restarted.");
             error.status = 409;
             throw error;
           }
           const updated = await client.query(
-            "UPDATE deployments SET desired_state = 'stopped', status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
+            "UPDATE deployments SET desired_state = 'running', status = 'restarting', updated_at = now() WHERE id = $1 AND tenant_id = $2 RETURNING id, tenant_id, application_id, revision, target_node_id, desired_state, status, health_check_path, health_check_timeout_seconds, health_checked_at, resource_requests_json AS resource_requests, created_by, created_at, updated_at",
             [deploymentId, tenantId]
           );
-          await audit(client, tenantId, user.id, "deployment.cancelled", "deployment", deploymentId, {
-            previous_status: current.rows[0].status,
-            desired_state: "stopped"
-          });
-          return { status: 200, body: { deployment: updated.rows[0], runtime_enabled: false } };
+          const restartPayload = {
+            deployment_id: deploymentId,
+            container_port: current.container_port,
+            health_check_path: current.health_check_path || "/",
+            health_check_timeout_seconds: current.health_check_timeout_seconds || 30
+          };
+          const job = await client.query(
+            "INSERT INTO jobs (tenant_id, node_id, deployment_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, 'restart', $4::jsonb, $5) RETURNING id, status",
+            [tenantId, current.target_node_id, deploymentId, JSON.stringify(restartPayload), "deployment:" + deploymentId + ":restart:" + randomUUID()]
+          );
+          if (!job.rows[0]) { const error = new Error("Restart job could not be queued."); error.status = 503; throw error; }
+          await audit(client, tenantId, user.id, "deployment.restart.queued", "deployment", deploymentId, { job_id: job.rows[0].id, node_id: current.target_node_id });
+          return { status: 200, body: { deployment: updated.rows[0], job: job.rows[0], runtime_job_queued: true, runtime_enabled: false } };
         }
 
         if (resource === "applications" && request.method === "GET") {
