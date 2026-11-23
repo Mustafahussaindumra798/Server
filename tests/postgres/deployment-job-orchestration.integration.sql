@@ -7,6 +7,8 @@ DECLARE
   v_node uuid;
   v_deployment uuid;
   v_job uuid;
+  v_cancel_deployment uuid;
+  v_cancel_job uuid;
   v_digest text := 'registry.example.com/cloudexify/demo@sha256:' || repeat('d',64);
 BEGIN
   INSERT INTO public.tenants (id,name,slug)
@@ -41,6 +43,22 @@ BEGIN
   UPDATE public.jobs SET status='failed' WHERE id=v_job;
   IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'failed' THEN
     RAISE EXCEPTION 'Deployment did not transition to failed when node reported failure';
+  END IF;
+
+  INSERT INTO public.deployments (
+    tenant_id,application_id,revision,target_node_id,desired_state,status,
+    image_digest,container_port,resource_requests_json
+  ) VALUES (
+    v_tenant,v_app,2,v_node,'running','scheduled',v_digest,8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}'
+  ) RETURNING id INTO v_cancel_deployment;
+  INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key)
+  VALUES (v_tenant,v_node,v_cancel_deployment,'deploy','{}'::jsonb,
+    'deployment:' || v_cancel_deployment::text || ':deploy')
+  RETURNING id INTO v_cancel_job;
+  UPDATE public.deployments SET status='cancelled',desired_state='stopped' WHERE id=v_cancel_deployment;
+  IF (SELECT status FROM public.jobs WHERE id=v_cancel_job) <> 'cancelled' THEN
+    RAISE EXCEPTION 'Cancelling a deployment did not cancel its queued node job';
   END IF;
 END
 $deployment_job_test$;
