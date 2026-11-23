@@ -35,7 +35,10 @@ const readySchema = {
   deployment_restart_reconciliation: true,
   runtime_reconciliation_function: true,
   deployment_automatic_rollback: true,
-  deployment_rollback_reconciliation: true
+  deployment_rollback_reconciliation: true,
+  deployment_runtime_local_port: true,
+  job_attempt_result_json: true,
+  deployment_endpoint_registration: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -118,6 +121,14 @@ test("health identifies migration 013 when automatic rollback is not installed",
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["013_automatic_deployment_rollback"]);
+});
+
+test("health identifies migration 014 when runtime endpoint registration is incomplete", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_endpoint_registration: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["014_runtime_endpoint_registration"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
