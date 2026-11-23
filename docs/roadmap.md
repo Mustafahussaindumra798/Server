@@ -115,7 +115,7 @@
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
-- [ ] Apply migrations 007–010 to production DB and deploy the verified `main` build
+- [ ] Apply migrations 007–011 to production DB and deploy the verified `main` build
 - [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
@@ -130,6 +130,12 @@
 - [x] Reconcile deployment status from node job acknowledgements: accepted/running/succeeded remains deploying pending health; terminal failure/rejection marks failed
 - [x] Cancel queued deploy jobs when their deployment revision is cancelled
 - [x] Dashboard collects immutable image digest and container port; generic job API remains diagnostic-only
+- [x] Authenticated deployment state API queues stop jobs for active revisions and restart jobs for stopped revisions (migration 011)
+- [x] Node agent confirms stop state and performs an HTTP health check after restart before the control plane reports stopped/healthy
+- [x] Database reconciles stopping, stopped, restarting, healthy and failed deployment states from typed node job results
+- [x] Application stop/suspend cancels queued revisions and queues stop jobs for active revisions atomically
+- [x] Dashboard exposes stop/restart controls and verified health timestamps
+- [x] API, agent and PostgreSQL integration tests cover deployment stop/restart lifecycle
 - [x] API, health and PostgreSQL integration tests added for deployment job orchestration (CI run #301 passed)
 - [ ] Add durable runtime reconciliation after node restart and expired job leases
 - [x] Add configurable HTTP health-check path and timeout to deployment requests (migration 010)
