@@ -623,7 +623,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
 
                 AND (node.capabilities_json->>'cpu_cores')::integer BETWEEN 1 AND 256
                 AND (node.resource_metrics_json->>'cpu_percent')::numeric < 85
-                AND ((node.capabilities_json->>'cpu_cores')::bigint * 1000 -
+                AND (((node.resource_metrics_json->>'cpu_cores')::bigint) * 1000 -
                   COALESCE((SELECT sum((deployment.resource_requests_json->>'cpu_millicores')::bigint)
                     FROM deployments AS deployment
                     WHERE deployment.target_node_id = node.id
