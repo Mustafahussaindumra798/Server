@@ -99,6 +99,14 @@ export function createRouteStreamManager({
         if (!bytes.length || bytes.length > MAX_DATA_BYTES) throw new Error("Route stream write exceeds the frame limit.");
         return writeFrame(node.socket, { type: "route_data", stream_id: id, data: bytes.toString("base64") });
       },
+      pause() {
+        if (!streams.has(id)) return false;
+        return writeFrame(node.socket, { type: "route_pause", stream_id: id });
+      },
+      resume() {
+        if (!streams.has(id)) return false;
+        return writeFrame(node.socket, { type: "route_resume", stream_id: id });
+      },
       onDrain(callback) {
         if (typeof callback !== "function") throw new Error("A drain callback is required.");
         const currentNode = nodes.get(nodeId);
@@ -157,6 +165,7 @@ export function createRouteStreamManager({
     openStream,
     handleNodeMessage,
     closeAll,
+    hasNode(nodeId) { const node = nodes.get(nodeId); return Boolean(node && !node.socket.destroyed); },
     get activeNodes() { return nodes.size; },
     get activeStreams() { return streams.size; }
   };
