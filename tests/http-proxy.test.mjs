@@ -27,7 +27,11 @@ test("HTTPS ingress handler proxies HTTP over an authenticated route stream", as
   let receivedRequest = "";
   let responseSent = false;
   const pool = {
-    async query(_sql, params) {
+    async query(sql, params) {
+      if (sql.includes("WHERE route.id = $1")) {
+        assert.deepEqual(params, [route.route_id, route.route_version, route.node_id, "app.example.test", route.deployment_id, route.local_port]);
+        return { rows: [route] };
+      }
       assert.deepEqual(params, ["app.example.test"]);
       return { rows: [route] };
     }
@@ -123,4 +127,72 @@ test("ingress returns 404, 421 and 503 without opening a tunnel", async (t) => {
   connected = false;
   assert.equal(await call("app.example.test"), 503);
   assert.equal(opened, 0);
+});
+
+test("active ingress route is terminated when periodic revalidation detects revocation", async (t) => {
+  let intervalCallback;
+  let intervalCleared = false;
+  let responseStatus;
+  let revalidationCount = 0;
+  const pool = {
+    async query(sql) {
+      if (sql.includes("WHERE route.id = $1")) {
+        revalidationCount += 1;
+        return { rows: [] };
+      }
+      return { rows: [route] };
+    }
+  };
+  const routeStreams = {
+    hasNode: () => true,
+    async openStream() {
+      return {
+        write: () => true,
+        onDrain: () => true,
+        pause: () => true,
+        resume: () => true,
+        close: () => {}
+      };
+    }
+  };
+  const handler = createIngressRequestHandler({
+    pool,
+    routeStreams,
+    signRouteGrant: () => ({ token: "signed-route-grant" }),
+    certificate: { checkHost: () => true },
+    setIntervalImpl(callback, delay) {
+      assert.equal(delay, 1000);
+      intervalCallback = callback;
+      return { unref() {} };
+    },
+    clearIntervalImpl() { intervalCleared = true; }
+  });
+  const server = http.createServer((req, res) => {
+    res.once("finish", () => { responseStatus = res.statusCode; });
+    void handler(req, res);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const responsePromise = new Promise((resolve, reject) => {
+    const req = http.get({
+      host: "127.0.0.1",
+      port: server.address().port,
+      headers: { host: "app.example.test" }
+    }, (res) => {
+      res.resume();
+      res.once("end", () => resolve(res.statusCode));
+    });
+    req.once("error", reject);
+  });
+
+  for (let attempt = 0; attempt < 20 && !intervalCallback; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(typeof intervalCallback, "function");
+  await intervalCallback();
+  assert.equal(revalidationCount, 1);
+  assert.equal(await responsePromise, 503);
+  assert.equal(responseStatus, 503);
+  assert.equal(intervalCleared, true);
 });
