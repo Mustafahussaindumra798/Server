@@ -88,13 +88,21 @@ export async function executeWorkloadJob(job, { runtime } = {}) {
     throw new Error("Unsupported or malformed workload job.");
   }
   if (job.job_type === "deploy") return runtime.deploy(job.payload);
-  const allowed = ["deployment_id"];
-  if (Object.keys(job.payload).some((key) => !allowed.includes(key)) ||
-      typeof job.payload.deployment_id !== "string") {
-    throw new Error("Workload lifecycle payload is malformed.");
+  if (job.job_type === "stop") {
+    if (Object.keys(job.payload).length !== 1 || typeof job.payload.deployment_id !== "string") {
+      throw new Error("Workload stop payload is malformed.");
+    }
+    return runtime.stop(job.payload.deployment_id);
   }
-  if (job.job_type === "stop") return runtime.stop(job.payload.deployment_id);
-  return runtime.restart(job.payload.deployment_id);
+  const allowed = ["deployment_id", "container_port", "health_check_path", "health_check_timeout_seconds"];
+  if (Object.keys(job.payload).some((key) => !allowed.includes(key)) ||
+      typeof job.payload.deployment_id !== "string" ||
+      !Number.isInteger(job.payload.container_port) ||
+      typeof job.payload.health_check_path !== "string" ||
+      !Number.isInteger(job.payload.health_check_timeout_seconds)) {
+    throw new Error("Workload restart payload is malformed.");
+  }
+  return runtime.restart(job.payload.deployment_id, job.payload);
 }
 
 export async function executeDiagnostic(job, { fetchImpl = fetch, controlPlaneUrl, procRoot = "/proc", diskPath = "/" } = {}) {
