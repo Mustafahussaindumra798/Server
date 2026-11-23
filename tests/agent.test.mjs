@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getLinuxIdentity, getCapabilities, detectPodmanRuntime, detectCosignVerifier, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
-import { executeDiagnostic, executeWorkloadJob, enrollNode, runAgent } from "../agent.mjs";
+import { executeDiagnostic, executeWorkloadJob, enrollNode, runAgent, getNodeCapabilities } from "../agent.mjs";
 
 const validState = {
   node_id: "30000000-0000-4000-8000-000000000001",
@@ -348,4 +348,21 @@ test("Termux never probes or advertises a container runtime", async () => {
   assert.equal(probed, false);
   assert.equal(capabilities.container_runtime, null);
   assert.equal(capabilities.workload_execution, false);
+});
+
+test("agent advertises ingress capabilities only with complete Linux tunnel and grant-key configuration", async () => {
+  const loader = async () => ({ agent_protocol: 1, diagnostics: ["probe"] });
+  const linux = { platform: "linux", architecture: "x86_64", environment: "linux" };
+  const termux = { platform: "android", architecture: "aarch64", environment: "termux" };
+  const enabled = await getNodeCapabilities(linux, { CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY: "public-pem" }, true, loader);
+  assert.equal(enabled.ingress_tunnel, true);
+  assert.equal(enabled.loopback_forwarder, true);
+  const missingKey = await getNodeCapabilities(linux, {}, true, loader);
+  assert.equal(missingKey.ingress_tunnel, false);
+  assert.equal(missingKey.loopback_forwarder, false);
+  const noTunnel = await getNodeCapabilities(linux, { CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY: "public-pem" }, false, loader);
+  assert.equal(noTunnel.ingress_tunnel, false);
+  const android = await getNodeCapabilities(termux, { CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY: "public-pem" }, true, loader);
+  assert.equal(android.ingress_tunnel, false);
+  assert.equal(android.loopback_forwarder, false);
 });
