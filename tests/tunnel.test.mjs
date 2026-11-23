@@ -269,13 +269,13 @@ test("gateway parses multiple bounded route frames in one large TCP chunk", asyn
   });
   const socket = new FakeSocket();
   connectionHandler(socket);
-  socket.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\\n"));
+  socket.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\n"));
   for (let i = 0; i < 100 && !socket.writes.some((m) => m.type === "welcome"); i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
   assert.ok(socket.writes.some((m) => m.type === "welcome"));
-  const frameA = JSON.stringify({ type: "route_data", stream_id: "streamA", data: Buffer.alloc(24 * 1024, 1).toString("base64") }) + "\\n";
-  const frameB = JSON.stringify({ type: "route_data", stream_id: "streamB", data: Buffer.alloc(24 * 1024, 2).toString("base64") }) + "\\n";
+  const frameA = JSON.stringify({ type: "route_data", stream_id: "streamA", data: Buffer.alloc(24 * 1024, 1).toString("base64") }) + "\n";
+  const frameB = JSON.stringify({ type: "route_data", stream_id: "streamB", data: Buffer.alloc(24 * 1024, 2).toString("base64") }) + "\n";
   assert.ok(Buffer.byteLength(frameA) < 36 * 1024);
   assert.ok(Buffer.byteLength(frameB) < 36 * 1024);
   assert.ok(Buffer.byteLength(frameA + frameB) > 36 * 1024);
