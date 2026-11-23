@@ -46,6 +46,8 @@ export function createRouteStreamManager({
     const node = nodes.get(stream.nodeId);
     if (node) node.streamIds.delete(stream.id);
     clearTimeout(stream.timer);
+    for (const listener of stream.drainCallbacks) stream.socket.off?.("drain", listener);
+    stream.drainCallbacks.clear();
     if (notifyNode && node && !node.socket.destroyed) {
       try { writeFrame(node.socket, { type: "route_close", stream_id: stream.id, reason: "gateway_closed" }); } catch {}
     }
@@ -84,7 +86,7 @@ export function createRouteStreamManager({
     let resolve;
     let reject;
     const opened = new Promise((res, rej) => { resolve = res; reject = rej; });
-    const stream = { id, nodeId, resolve, reject, settled: false, opened: false, timer: null, onData, onClose };
+    const stream = { id, nodeId, socket: node.socket, drainCallbacks: new Set(), resolve, reject, settled: false, opened: false, timer: null, onData, onClose };
     streams.set(id, stream);
     node.streamIds.add(id);
     stream.timer = setTimeout(() => finish(stream, new Error("Node route stream open timed out."), true), openTimeoutMs);
@@ -109,9 +111,13 @@ export function createRouteStreamManager({
       },
       onDrain(callback) {
         if (typeof callback !== "function") throw new Error("A drain callback is required.");
-        const currentNode = nodes.get(nodeId);
-        if (!currentNode || currentNode.socket.destroyed) return false;
-        currentNode.socket.once("drain", callback);
+        if (!streams.has(id) || stream.socket.destroyed) return false;
+        const listener = () => {
+          stream.drainCallbacks.delete(listener);
+          callback();
+        };
+        stream.drainCallbacks.add(listener);
+        stream.socket.once("drain", listener);
         return true;
       },
       close() {
