@@ -26,13 +26,21 @@ export function createRouteForwarder({
   if (!Number.isInteger(maxStreams) || maxStreams < 1 || maxStreams > MAX_STREAMS) throw new Error("Route stream limit is invalid.");
   const consumed = new Set();
   const streams = new Map();
+  const blockedLocals = new Set();
   let closed = false;
+
+  const onTunnelDrain = () => {
+    for (const stream of streams.values()) stream.local.resume();
+  };
+  tunnelSocket.on?.("drain", onTunnelDrain);
 
   function closeStream(id, reason = "closed", notify = true) {
     const stream = streams.get(id);
     if (!stream) return;
     streams.delete(id);
     clearTimeout(stream.idleTimer);
+    blockedLocals.delete(id);
+    if (blockedLocals.size === 0) tunnelSocket.resume?.();
     stream.local.destroy();
     if (notify && !closed && !tunnelSocket.destroyed) {
       try { send(tunnelSocket, { type: "route_close", stream_id: id, reason }); } catch {}
@@ -41,6 +49,7 @@ export function createRouteForwarder({
 
   function closeAll() {
     closed = true;
+    tunnelSocket.off?.("drain", onTunnelDrain);
     for (const id of [...streams.keys()]) closeStream(id, "tunnel_closed", false);
   }
 
@@ -79,8 +88,10 @@ export function createRouteForwarder({
       try { send(tunnelSocket, { type: "route_opened", stream_id: id }); }
       catch { closeStream(id, "tunnel_write_failed", false); }
     });
-    tunnelSocket.on?.("drain", () => local.resume());
-    local.on("drain", () => tunnelSocket.resume?.());
+    local.on("drain", () => {
+      blockedLocals.delete(id);
+      if (blockedLocals.size === 0) tunnelSocket.resume?.();
+    });
     local.on("data", (chunk) => {
       if (!streams.has(id)) return;
       touch(stream);
@@ -112,7 +123,10 @@ export function createRouteForwarder({
       const data = Buffer.from(message.data, "base64");
       if (!data.length || data.length > MAX_DATA_BYTES || data.toString("base64") !== message.data) return false;
       touch(stream);
-      if (!stream.local.write(data)) tunnelSocket.pause?.();
+      if (!stream.local.write(data)) {
+        blockedLocals.add(stream.id);
+        tunnelSocket.pause?.();
+      }
       return true;
     }
     if (message.type === "route_close") {
