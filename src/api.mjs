@@ -216,7 +216,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         const agentVersion = body.agent_version == null ? null : requireText(body.agent_version, "agent_version", 40);
         const resources = body.resources == null ? {} : body.resources;
         const allowed = new Set(["cpu_percent","memory_total_bytes","memory_used_bytes","disk_total_bytes","disk_available_bytes","load_1m","uptime_seconds","battery_percent","temperature_c","cpu_cores"]);
-        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 9 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100) || (key === "cpu_cores" && (value < 1 || value > 256 || !Number.isInteger(value))))) {
+        if (!resources || Array.isArray(resources) || typeof resources !== "object" || Buffer.byteLength(JSON.stringify(resources), "utf8") > 8192 || Object.keys(resources).length > 10 || Object.entries(resources).some(([key,value]) => !allowed.has(key) || typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e15 || ((key === "cpu_percent" || key === "battery_percent") && value > 100) || (key === "cpu_cores" && (value < 1 || value > 256 || !Number.isInteger(value))))) {
           const error = new Error("resources must contain only supported finite numeric metrics within their allowed ranges (8 KiB maximum)."); error.status = 400; throw error;
         }
         const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
