@@ -164,8 +164,10 @@
 - [x] Implement node-side loopback-only stream forwarder with signed-port binding, 32-stream cap, bounded data frames, idle timeout and disconnect cleanup
 - [x] Implement bounded gateway stream multiplexing, node response-frame handling, per-node stream caps, open timeouts, disconnect cleanup and frame-size validation
 - [x] Add gateway-to-node request data framing and expose tunnel drain signals for upstream backpressure coordination
-- [ ] Implement node selection/scheduling across eligible nodes, HTTP reverse-proxy request/response piping and full end-to-end backpressure enforcement
-- [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
+- [x] Implement normalized hostname lookup against active tenant-scoped routes, HTTPS TLS termination with operator-provisioned certificate, HTTP request/response proxying over multiplexed mTLS streams, hop-by-hop header filtering, bounded request bodies/timeouts and stream-level pause/resume
+- [x] Add route activation state and database lifecycle gate: only eligible verified-domain/healthy-deployment routes on nodes advertising ingress tunnel + loopback-forwarder readiness become active; node/deployment/domain ineligibility suspends them (migration 018)
+- [x] Require a live authenticated mTLS node session at request time and issue a short-lived signed loopback grant for the exact route/node
+- [ ] Implement multi-node route scheduling/failover, automated ACME/SNI certificate lifecycle, and production load/failure qualification
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
 - [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
@@ -179,7 +181,8 @@
 ## Milestone 4 — Networking and operations
 - [x] Establish private outbound mTLS control transport between Linux nodes and the gateway
 - [x] Node-side signed-grant loopback forwarding and gateway multiplexed route-stream transport implemented; public request ingress remains disabled
-- [ ] Public domain routing, TLS termination, service discovery and ingress
+- [x] Opt-in HTTPS hostname routing, TLS termination and reverse proxy implementation (public listener disabled by default; manual certificate only)
+- [ ] Production DNS/TLS rollout, multi-node service discovery/failover and public ingress qualification
 - [ ] Logs, metrics, alerts, backups and recovery drills
 - [ ] Upgrade strategy and credential rotation
 
