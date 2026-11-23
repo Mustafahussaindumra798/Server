@@ -2,6 +2,7 @@ import tls from "node:tls";
 import { X509Certificate } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import net from "node:net";
+import { createRouteForwarder } from "./route-forwarder.mjs";
 import { setTimeout as sleep } from "node:timers/promises";
 
 export const NODE_TUNNEL_ALPN = "cloudexify-node-tunnel/1";
@@ -72,7 +73,7 @@ function writeFrame(socket, value) {
   socket.write(frame);
 }
 
-function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onState, handshakeTimeoutMs }) {
+function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onState, handshakeTimeoutMs, routeGrantPublicKey }) {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return resolve();
     const options = {
@@ -89,6 +90,7 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
     const socket = connectImpl(options);
     let settled = false;
     let welcomed = false;
+    let routeForwarder = null;
     let buffer = "";
     let handshakeTimer;
     let connectTimer;
@@ -118,7 +120,7 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
     });
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
-      if (Buffer.byteLength(buffer, "utf8") > MAX_FRAME_BYTES) {
+      if (Buffer.byteLength(buffer, "utf8") > (welcomed ? 36 * 1024 : MAX_FRAME_BYTES)) {
         socket.destroy(new Error("Tunnel control frame exceeds the protocol limit."));
         return;
       }
@@ -139,12 +141,18 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
           }
           welcomed = true;
           clearTimeout(handshakeTimer);
+          if (routeGrantPublicKey) {
+            try { routeForwarder = createRouteForwarder({ nodeId, publicKeyPem: routeGrantPublicKey, tunnelSocket: socket }); }
+            catch (error) { socket.destroy(error); return; }
+          }
           onState("connected");
           continue;
         }
         if (message.type === "ping" && Number.isSafeInteger(message.sequence)) {
           try { writeFrame(socket, { type: "pong", sequence: message.sequence }); }
           catch (error) { socket.destroy(error); }
+        } else if (routeForwarder && routeForwarder.handle(message)) {
+          continue;
         } else {
           socket.destroy(new Error("Tunnel gateway sent an unsupported control message."));
           return;
@@ -166,7 +174,8 @@ export function startNodeTunnel({
   maxBackoffMs = 30000,
   random = Math.random,
   sleepImpl = sleep,
-  handshakeTimeoutMs = 5000
+  handshakeTimeoutMs = 5000,
+  routeGrantPublicKey = null
 }) {
   if (!NODE_ID.test(nodeId || "")) throw new Error("Tunnel node ID is invalid.");
   const endpoint = parseTunnelUrl(gatewayUrl);
@@ -183,7 +192,7 @@ export function startNodeTunnel({
     while (!runSignal.aborted) {
       try {
         onState("connecting");
-        await connectOnce({ connectImpl, endpoint, credentials, nodeId, signal: runSignal, onState, handshakeTimeoutMs });
+        await connectOnce({ connectImpl, endpoint, credentials, nodeId, signal: runSignal, onState, handshakeTimeoutMs, routeGrantPublicKey });
         backoff = minBackoffMs;
       } catch (error) {
         if (error instanceof NodeTunnelAuthorizationError || permanentTlsError(error)) {
