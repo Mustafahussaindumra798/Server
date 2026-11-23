@@ -16,7 +16,7 @@ test("deployment manifests require immutable OCI digests and bounded resource re
   assert.equal(validateDeploymentPayload(payload).container_name, "cloudexify-" + deploymentId);
   assert.throws(() => validateDeploymentPayload({ ...payload, image: "nginx:latest" }), /immutable OCI SHA-256 digest/);
   assert.throws(() => validateDeploymentPayload({ ...payload, container_port: 0 }), /Container port/);
-  assert.throws(() => validateDeploymentPayload({ ...payload, resources: { cpu_millicores: 0, memory_bytes: 1 } }), /CPU and memory/);
+  assert.throws(() => validateDeploymentPayload({ ...payload, resources: { cpu_millicores: 0, memory_bytes: 1 } }), /CPU, memory and disk/);
   assert.throws(() => validateDeploymentPayload({ ...payload, command: "sh -c whoami" }), /unsupported fields/);
   assert.throws(() => validateDeploymentPayload({ ...payload, health_check_path: "//evil.example" }), /safe absolute path/);
   assert.throws(() => validateDeploymentPayload({ ...payload, health_check_timeout_seconds: 121 }), /5 to 120 seconds/);
