@@ -82,6 +82,12 @@ Workload placement additionally requires the Podman `overlay` storage driver, re
 
 Missing binaries, malformed output, timeouts, rootful Podman, or missing cgroup v2 fail closed. Termux never probes or advertises a container runtime. This is capability discovery only: `workload_execution` remains `false`. No image is pulled, no container is created, and no application code is executed.
 
+## Optional outbound mTLS tunnel
+
+A Linux agent can establish the authenticated outbound tunnel when all four `CLOUDEXIFY_TUNNEL_*` variables are configured. It requires a per-node TLS client certificate whose CN exactly matches the enrolled node UUID, a private key with owner-only permissions, and a CA certificate that validates the gateway. The agent enforces TLS 1.3, hostname validation and the `cloudexify-node-tunnel/1` ALPN. It reconnects with exponential backoff capped at 30 seconds. Partial configuration and Android/Termux use fail closed.
+
+See [Node mTLS tunnel operations](node-mtls-tunnel.md) for certificate provisioning, gateway setup, revocation and firewall requirements. The tunnel currently carries only authenticated control frames; it does not forward customer HTTP/TCP traffic or expose workload ports.
+
 ## Observability and limitations
 
 Structured logs include timestamps, node ID, job ID, and bounded result codes; they never intentionally include the node credential or lease token. Metrics that cannot be read are omitted rather than represented as zero. The CPU percentage is sampled over a short interval; disk and memory values are point-in-time estimates.
