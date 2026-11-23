@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates, bounded failure handling and startup runtime reconciliation are implemented (latest PostgreSQL integration CI run #379 and Linux agent CI run #52 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, storage quotas, durable reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission, transactional deployment-job orchestration, typed deploy/stop/restart lifecycle, rootless Podman execution, Cosign verification and HTTP health gates, bounded failure handling and startup runtime reconciliation are implemented (latest PostgreSQL integration CI run #379 and Linux agent CI run #52 passed on `main`). Customer-facing hosting remains gated on trusted-key provisioning, automatic rollback, ingress/TLS, persistent volumes, continuous drift reconciliation and physical Linux-node qualification. Both Android/Termux devices have enrolled and connected (user-confirmed); they remain diagnostics/scheduler test nodes, not production workload hosts. Production migrations/deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -146,10 +146,12 @@
 - [x] API, agent, health and PostgreSQL integration tests added for health gates
 - [ ] Add automatic rollback to the previous healthy revision after terminal failure
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
-- [ ] Enforce per-container disk quotas and complete resource isolation
+- [x] Pass reserved disk bytes through deploy and recovery jobs; enforce Podman overlay writable-layer quota and require operator-qualified overlay storage before placement
+- [ ] Implement persistent application volumes, storage lifecycle and backup/restore
 - [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
-- [ ] Per-node workload isolation and quotas
+- [x] Per-container ephemeral writable-layer disk quota (Podman overlay size limit; operator qualification required)
+- [ ] Persistent per-application volumes and backup/restore
 
 ## Milestone 4 — Networking and operations
 - [ ] Domain routing, TLS, service discovery and ingress
