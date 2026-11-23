@@ -71,3 +71,35 @@ test("forwarder rejects malformed stream IDs, oversized data and unknown stream 
   assert.equal(forwarder.handle({ type: "route_data", stream_id: "missing", data: "A".repeat(40000) }), false);
   forwarder.close();
 });
+
+test("forwarder applies gateway pause and resume to the exact active upstream stream", async () => {
+  class FakeLocal extends EventEmitter {
+    constructor() { super(); this.destroyed = false; this.paused = false; }
+    setNoDelay() {}
+    pause() { this.paused = true; }
+    resume() { this.paused = false; }
+    write() { return true; }
+    destroy() { this.destroyed = true; this.emit("close"); }
+  }
+  let local;
+  const tunnel = new TunnelSocket();
+  const forwarder = createRouteForwarder({
+    nodeId,
+    publicKeyPem: publicPem,
+    tunnelSocket: tunnel,
+    connectImpl: (options) => {
+      assert.deepEqual(options, { host: "127.0.0.1", port: route.local_port });
+      local = new FakeLocal();
+      queueMicrotask(() => local.emit("connect"));
+      return local;
+    }
+  });
+  assert.equal(forwarder.handle({ type: "route_open", stream_id: "flow1", grant: sign(route).token }), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(forwarder.handle({ type: "route_pause", stream_id: "flow1" }), true);
+  assert.equal(local.paused, true);
+  assert.equal(forwarder.handle({ type: "route_resume", stream_id: "flow1" }), true);
+  assert.equal(local.paused, false);
+  assert.equal(forwarder.handle({ type: "route_pause", stream_id: "unknown" }), false);
+  forwarder.close();
+});
