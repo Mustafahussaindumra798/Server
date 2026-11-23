@@ -53,6 +53,12 @@ export function createHealthHandler(databasePool) {
               AND tgname = 'jobs_reconcile_deployment_status'
               AND NOT tgisinternal
           ) AS deployment_job_reconciliation,
+          EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = 'public.deployments'::regclass
+              AND tgname = 'deployments_cancel_queued_jobs'
+              AND NOT tgisinternal
+          ) AS deployment_job_cancellation,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb)') IS NOT NULL AS heartbeat_function,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
@@ -64,7 +70,7 @@ export function createHealthHandler(databasePool) {
         schema.acknowledge_job_function;
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
-      const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation;
+      const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation && schema.deployment_job_cancellation;
 
       if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady) {
         response.statusCode = 503;
