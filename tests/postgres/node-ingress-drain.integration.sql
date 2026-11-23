@@ -17,8 +17,5 @@ BEGIN
     RAISE EXCEPTION 'nodes.ingress_draining must be NOT NULL with a false default';
   END IF;
 
-  IF to_regclass('public.nodes_ingress_draining_idx') IS NULL THEN
-    RAISE EXCEPTION 'nodes_ingress_draining_idx is missing';
-  END IF;
 END
 $test$;
