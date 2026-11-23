@@ -74,6 +74,30 @@ BEGIN
     RAISE EXCEPTION 'Rollback incorrectly created a duplicate deployment revision';
   END IF;
 
+  -- A second deployment failure while the previous revision is already
+  -- reserved for rollback must not enqueue a competing recovery job.
+  DECLARE
+    v_overlapping_deployment uuid;
+    v_overlapping_job uuid;
+  BEGIN
+    INSERT INTO public.deployments (
+      tenant_id,application_id,revision,target_node_id,desired_state,status,
+      image_digest,container_port,resource_requests_json
+    ) VALUES (
+      v_tenant,v_app,3,v_node,'running','deploying',v_new_digest,8080,
+      '{"cpu_millicores":500,"memory_bytes":536870912,"disk_bytes":2147483648}'
+    ) RETURNING id INTO v_overlapping_deployment;
+    INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key,attempt_count)
+    VALUES (v_tenant,v_node,v_overlapping_deployment,'deploy','{}'::jsonb,
+      'overlapping-rollback:' || v_overlapping_deployment,5)
+    RETURNING id INTO v_overlapping_job;
+    UPDATE public.jobs SET status='failed' WHERE id=v_overlapping_job;
+    IF (SELECT count(*) FROM public.jobs WHERE deployment_id=v_previous AND type='restart') <> 1
+       OR (SELECT status FROM public.deployments WHERE id=v_previous) <> 'restarting' THEN
+      RAISE EXCEPTION 'Overlapping deployment failure created a competing rollback attempt';
+    END IF;
+  END;
+
   -- Failed rollback must not recursively trigger another rollback.
   UPDATE public.jobs SET attempt_count=max_attempts, status='failed' WHERE id=v_rollback_job;
   IF (SELECT count(*) FROM public.jobs WHERE deployment_id=v_previous AND type='restart') <> 1 THEN
