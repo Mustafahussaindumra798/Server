@@ -75,6 +75,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/016_deployment_domain_route_registry.sql
       - name: Apply node mTLS tunnel certificate migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/017_node_tunnel_certificates.sql
+      - name: Apply active ingress route gate migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/018_activate_ingress_routes.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify runtime capability heartbeat
