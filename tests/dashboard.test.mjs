@@ -88,3 +88,15 @@ test("saved sessions retry dashboard bootstrap when a hidden tab becomes active"
   assert.match(app, /openDashboard\(\)\.catch/);
   assert.match(app, /Your session is still saved/);
 });
+
+test("dashboard exposes guarded node ingress drain and resume controls to tenant owners and admins", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /data-node-ingress-state="draining"/);
+  assert.match(app, /data-node-ingress-state="active"/);
+  assert.match(app, /node\.ingress_managed/);
+  assert.match(app, /node\.ingress_ready/);
+  assert.match(app, /Stop accepting new customer requests/);
+  assert.match(app, /\/nodes\/\" \+ encodeURIComponent\(nodeId\) \+ \"\/state/);
+  assert.match(app, /ingress_state: ingressState/);
+  assert.match(app, /data-node-action\], \[data-node-ingress-state\]/);
+});
