@@ -82,6 +82,7 @@ export function createRouteStreamManager({
     if (!node) return;
     nodes.delete(nodeId);
     for (const id of [...node.streamIds]) {
+      node.streamIds.delete(id);
       const stream = streams.get(id);
       if (stream) finish(stream, reason, false);
     }
