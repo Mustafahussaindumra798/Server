@@ -78,9 +78,11 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
     let welcomed = false;
     let buffer = "";
     let handshakeTimer;
+    let connectTimer;
     const finish = (error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(connectTimer);
       clearTimeout(handshakeTimer);
       signal.removeEventListener("abort", abort);
       if (error) reject(error);
@@ -90,7 +92,9 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
     signal.addEventListener("abort", abort, { once: true });
     socket.once("error", (error) => finish(error));
     socket.once("close", () => finish());
+    connectTimer = setTimeout(() => socket.destroy(new Error("Tunnel TCP/TLS connection timed out.")), handshakeTimeoutMs * 3);
     socket.once("secureConnect", () => {
+      clearTimeout(connectTimer);
       if (!socket.authorized || socket.alpnProtocol !== NODE_TUNNEL_ALPN) {
         socket.destroy(new NodeTunnelAuthorizationError("Tunnel gateway TLS identity or ALPN validation failed."));
         return;
