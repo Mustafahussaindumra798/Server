@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 3 — resource admission, application desired-state controls and queued deployment cancellation are implemented in the control plane. Actual workload execution remains disabled until a qualified node runtime is implemented. Both Android/Termux devices have enrolled and connected (user-confirmed). Production deployment and manual end-to-end QA remain release gates.
+**Current stage:** Phase 3 — resource admission and lifecycle controls are implemented. A rootless Podman execution adapter and typed agent dispatch for deploy/stop/restart jobs are implemented and CI-tested, but customer deployment remains disabled until control-plane job orchestration, artifact verification, health gates, ingress and storage quotas are complete. Both Android/Termux devices have enrolled and connected (user-confirmed). Production deployment and manual end-to-end QA remain release gates.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -120,8 +120,14 @@
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
 - [x] Refresh and persist runtime capabilities on every authenticated node heartbeat (migration 008; API, agent and health checks updated)
-- [ ] Implement signed/immutable artifact references and content verification
-- [ ] Implement rootless OCI deployment adapter, per-application isolation, bounded resource limits and process lifecycle
+- [ ] Implement signed artifact provenance and content verification (runtime currently requires immutable OCI SHA-256 digests but does not verify signatures)
+- [x] Implement rootless Podman workload adapter with immutable digest validation, rootless/cgroup-v2 gate, CPU/memory/PID limits, read-only rootfs, dropped capabilities, no-new-privileges and loopback-only port publication (CI runs #267–272 passed)
+- [x] Agent dispatch for typed deploy/stop/restart jobs; rejects malformed payloads and never accepts arbitrary shell commands (CI runs #271–272 passed)
+- [ ] Connect deployment creation to authorized, idempotent deploy/stop/restart job orchestration and deployment status transitions
+- [ ] Add durable runtime reconciliation after node restart and expired job leases
+- [ ] Add application health checks, revision health gates and rollback policy
+- [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
+- [ ] Enforce per-container disk quotas and complete resource isolation
 - [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
