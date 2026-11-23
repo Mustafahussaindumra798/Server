@@ -506,7 +506,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         if (resource === "deployments" && request.method === "GET") {
           requirePermission(role, "read");
           const deployments = await client.query(
-            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, created_by, created_at, updated_at FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
+            "SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, resource_requests_json AS resource_requests, created_by, created_at, updated_at FROM deployments WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 100",
             [tenantId]
           );
           return { status: 200, body: { deployments: deployments.rows } };
