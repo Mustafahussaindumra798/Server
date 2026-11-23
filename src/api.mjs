@@ -530,21 +530,13 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
           );
           if (!current.rows[0]) { const error = new Error("Application not found."); error.status = 404; throw error; }
 
-          // Lock deployment revisions after the application row. Deployment creation
-          // takes the same application lock first, preventing concurrent placement
-          // from racing with a stop/suspend request.
           let cancelledDeploymentCount = 0;
+          let queuedStopJobCount = 0;
           if (["stopped", "suspended"].includes(desiredState)) {
             const revisions = await client.query(
-              "SELECT id, status FROM deployments WHERE application_id = $1 AND tenant_id = $2 AND status IN ('queued', 'scheduled', 'deploying', 'healthy') ORDER BY revision FOR UPDATE",
+              "SELECT id, status, target_node_id FROM deployments WHERE application_id = $1 AND tenant_id = $2 AND status IN ('queued','scheduled','deploying','healthy','stopping','restarting','failed') ORDER BY revision FOR UPDATE",
               [applicationId, tenantId]
             );
-            const active = revisions.rows.filter((revision) => ["deploying", "healthy"].includes(revision.status));
-            if (active.length) {
-              const error = new Error("Application has an active deployment. A node runtime is required to stop it safely; no state was changed.");
-              error.status = 409;
-              throw error;
-            }
             const pendingIds = revisions.rows.filter((revision) => ["queued", "scheduled"].includes(revision.status)).map((revision) => revision.id);
             if (pendingIds.length) {
               const cancelled = await client.query(
@@ -553,6 +545,27 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
               );
               cancelledDeploymentCount = cancelled.rowCount ?? cancelled.rows.length;
             }
+
+            const active = revisions.rows.filter((revision) => ["deploying", "healthy", "restarting", "failed"].includes(revision.status));
+            if (active.some((revision) => !revision.target_node_id)) {
+              const error = new Error("An active deployment has no assigned node; application stop was not completed.");
+              error.status = 409;
+              throw error;
+            }
+            for (const revision of active) {
+              await client.query(
+                "UPDATE deployments SET desired_state = 'stopped', status = 'stopping', updated_at = now() WHERE id = $1 AND tenant_id = $2",
+                [revision.id, tenantId]
+              );
+              const job = await client.query(
+                "INSERT INTO jobs (tenant_id, node_id, deployment_id, type, payload_json, idempotency_key) VALUES ($1, $2, $3, 'stop', $4::jsonb, $5) RETURNING id",
+                [tenantId, revision.target_node_id, revision.id, JSON.stringify({ deployment_id: revision.id }), "deployment:" + revision.id + ":app-stop:" + randomUUID()]
+              );
+              if (!job.rows[0]) { const error = new Error("Application stop job could not be queued."); error.status = 503; throw error; }
+              queuedStopJobCount += 1;
+              await audit(client, tenantId, user.id, "deployment.stop.queued", "deployment", revision.id, { job_id: job.rows[0].id, reason: desiredState, application_id: applicationId });
+            }
+            queuedStopJobCount += revisions.rows.filter((revision) => revision.status === "stopping").length;
           }
 
           const updated = await client.query(
@@ -563,6 +576,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
             previous_desired_state: current.rows[0].desired_state,
             desired_state: desiredState,
             cancelled_deployments: cancelledDeploymentCount,
+            queued_stop_jobs: queuedStopJobCount,
             runtime_enabled: false
           });
           if (cancelledDeploymentCount) {
@@ -571,7 +585,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
               reason: desiredState
             });
           }
-          return { status: 200, body: { application: updated.rows[0], cancelled_deployments: cancelledDeploymentCount, runtime_enabled: false } };
+          return { status: 200, body: { application: updated.rows[0], cancelled_deployments: cancelledDeploymentCount, queued_stop_jobs: queuedStopJobCount, runtime_enabled: false } };
         }
 
         if (resource === "deployments" && route[3] && route[6] === "state" && request.method === "POST") {
