@@ -976,3 +976,15 @@ test("tenant member can query audit events with filtering", async (t) => {
   assert.equal(Array.isArray(payload.audit_events), true);
   assert.equal(payload.audit_events.length, 1);
 });
+
+test("tenant member can query deployment lifecycle events", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const deploymentId = "50000000-0000-4000-8000-000000000001";
+  const res = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments/" + deploymentId + "/events", {
+    headers: { authorization: "Bearer " + makeToken() }
+  });
+  assert.equal(res.status, 200);
+  const payload = await res.json();
+  assert.equal(Array.isArray(payload.events), true);
+  assert.equal(payload.events.length, 1);
+});

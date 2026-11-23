@@ -416,7 +416,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         const domainRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/domains(?:\/([0-9a-f-]{36})(?:\/(challenge|verify))?)?$/i);
         const volumeRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/volumes(?:\/([0-9a-f-]{36})(?:\/(backups|attach|detach))?)?$/i);
         const auditRoute = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/audit-events$/i);
-        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})(?:\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)|(state)))?)?$/i);
+        const route = url.pathname.match(/^\/api\/v1\/tenants\/([0-9a-f-]{36})\/(applications|deployments|members|enrollment-tokens|nodes|jobs|overview)(?:\/([0-9a-f-]{36})(?:\/(?:credentials\/([0-9a-f-]{36})\/revoke|(approve|reject)|(state)|(events)))?)?$/i);
 
         if (url.pathname === "/api/v1/auth/me" && request.method === "GET") {
           const memberships = await client.query(
@@ -1052,6 +1052,16 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
           if (!job.rows[0]) { const error = new Error("Restart job could not be queued."); error.status = 503; throw error; }
           await audit(client, tenantId, user.id, "deployment.restart.queued", "deployment", deploymentId, { job_id: job.rows[0].id, node_id: current.target_node_id });
           return { status: 200, body: { deployment: updated.rows[0], job: job.rows[0], runtime_job_queued: true, runtime_enabled: false } };
+        }
+
+        if (resource === "deployments" && route[3] && route[7] === "events" && request.method === "GET") {
+          requirePermission(role, "read");
+          const deploymentId = requireUuid(route[3], "deployment_id");
+          const events = await client.query(
+            "SELECT id, tenant_id, actor_type, actor_id, action, resource_type, resource_id, request_id, metadata_json AS metadata, created_at FROM audit_events WHERE tenant_id = $1 AND resource_type = 'deployment' AND resource_id = $2 ORDER BY created_at ASC LIMIT 100",
+            [tenantId, deploymentId]
+          );
+          return { status: 200, body: { events: events.rows } };
         }
 
         if (resource === "applications" && request.method === "GET") {
