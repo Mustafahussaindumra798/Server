@@ -187,7 +187,13 @@ export class PodmanWorkloadRuntime {
     return { result_code: "workload_stopped", result_summary: "Container stop was confirmed by Podman." };
   }
 
-  async restart(deploymentId) {
+  async restart(deploymentId, options = {}) {
+    if (!UUID.test(deploymentId || "")) throw new Error("Deployment ID is invalid.");
+    const containerPort = options.container_port;
+    const healthCheckPath = options.health_check_path == null ? "/" : options.health_check_path;
+    const healthCheckTimeout = options.health_check_timeout_seconds == null ? 30 : options.health_check_timeout_seconds;
+    if (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535) throw new Error("Restart container port is invalid.");
+    if (typeof healthCheckPath !== "string" || healthCheckPath.length < 1 || healthCheckPath.length > 256 || !/^\\/[A-Za-z0-9._~!  async restart(deploymentId) {
     if (!UUID.test(deploymentId || "")) throw new Error("Deployment ID is invalid.");
     await this.assertReady();
     const name = "cloudexify-" + deploymentId.toLowerCase();
@@ -197,6 +203,23 @@ export class PodmanWorkloadRuntime {
     const after = await this.inspect(name);
     if (!after?.State?.Running) throw new Error("Container restart was not confirmed.");
     return { result_code: "workload_restarted", result_summary: "Container restart was confirmed; application health has not yet been verified." };
+  }'()*+,;=:@%\\/-]*$/.test(healthCheckPath) || healthCheckPath.startsWith("//") || healthCheckPath.split("/").includes("..")) throw new Error("Restart health-check path is invalid.");
+    if (!Number.isInteger(healthCheckTimeout) || healthCheckTimeout < 5 || healthCheckTimeout > 120) throw new Error("Restart health-check timeout is invalid.");
+    await this.assertReady();
+    const name = "cloudexify-" + deploymentId.toLowerCase();
+    const existing = await this.inspect(name);
+    if (!existing) throw new Error("Deployment container does not exist on this node.");
+    await this.command(["restart", "--time", "10", name], 30000);
+    const after = await this.inspect(name);
+    if (!after?.State?.Running) throw new Error("Container restart was not confirmed.");
+    const localPort = this.getHostPort(after, containerPort);
+    try {
+      const health = await this.waitForHealth(localPort, { health_check_path: healthCheckPath, health_check_timeout_seconds: healthCheckTimeout });
+      return { result_code: "workload_healthy", result_summary: "Container restarted and passed its application HTTP health check.", container_name: name, local_port: localPort, health };
+    } catch (error) {
+      await this.removeUnhealthyContainer(name);
+      throw error;
+    }
   }
 }
 
