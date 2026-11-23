@@ -4,7 +4,7 @@ import { domainToASCII } from "node:url";
 import { isIP } from "node:net";
 
 const HOP_BY_HOP = new Set([
-  "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+  "connection", "keep-alive", "proxy-connection", "proxy-authenticate", "proxy-authorization",
   "te", "trailer", "transfer-encoding", "upgrade"
 ]);
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
@@ -101,6 +101,10 @@ export function createIngressRequestHandler({
     const hostname = normalizeIngressHostname(request.headers.host);
     if (!hostname) { response.writeHead(400, { connection: "close" }); response.end("Invalid Host header"); return; }
     if (!certificate.checkHost(hostname)) { response.writeHead(421, { connection: "close" }); response.end("Misdirected Request"); return; }
+    if (typeof request.url !== "string" || request.url.length > 8192 ||
+        !request.url.startsWith("/") || request.url.startsWith("//") || /[\\r\\n]/.test(request.url)) {
+      response.writeHead(400, { connection: "close" }); response.end("Invalid request target"); return;
+    }
     if (request.method === "CONNECT" || request.method === "TRACE" || request.headers.upgrade) {
       response.writeHead(405, { allow: "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS" });
       response.end("Method not supported");
@@ -224,6 +228,7 @@ export function createIngressRequestHandler({
     upstream.once("timeout", () => upstream.destroy(new Error("Ingress upstream timed out.")));
     upstream.once("error", (error) => {
       agent.destroy();
+      if (response.writableEnded) return;
       logger("upstream_proxy_failed", { route_id: route.route_id, message: error.message });
       if (!response.headersSent) { response.writeHead(502, { connection: "close" }); response.end("Upstream unavailable"); }
       else response.destroy(error);
