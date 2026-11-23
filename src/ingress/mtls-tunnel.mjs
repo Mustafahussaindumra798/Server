@@ -28,6 +28,7 @@ export function createNodeTunnelServer({
   pingIntervalMs = 15000,
   authorizationRecheckMs = 15000,
   handshakeTimeoutMs = 5000,
+  maxConnections = 1000,
   createServer = tls.createServer
 }) {
   if (!tlsOptions?.key || !tlsOptions?.cert || !tlsOptions?.ca) throw new Error("Gateway TLS key, certificate and client CA are required.");
@@ -35,6 +36,10 @@ export function createNodeTunnelServer({
   if (![pingIntervalMs, authorizationRecheckMs, handshakeTimeoutMs].every((n) => Number.isInteger(n) && n >= 1000 && n <= 120000)) {
     throw new Error("Tunnel timing options are outside safe bounds.");
   }
+  if (!Number.isInteger(maxConnections) || maxConnections < 1 || maxConnections > 10000) {
+    throw new Error("Tunnel maxConnections must be between 1 and 10000.");
+  }
+  const activeNodes = new Map();
   const server = createServer({
     ...tlsOptions,
     requestCert: true,
@@ -57,6 +62,7 @@ export function createNodeTunnelServer({
     const cleanup = () => {
       clearInterval(pingTimer);
       clearInterval(recheckTimer);
+      if (activeNodes.get(peer.nodeId) === socket) activeNodes.delete(peer.nodeId);
     };
     socket.once("close", cleanup);
     const rejectPeer = (code = null) => {
@@ -84,9 +90,17 @@ export function createNodeTunnelServer({
       if (socket.destroyed) return;
       if (!allowed) { rejectPeer("NODE_TUNNEL_REVOKED"); return; }
       clearTimeout(handshakeTimer);
+      const previous = activeNodes.get(peer.nodeId);
+      if (previous && previous !== socket) previous.destroy();
+      activeNodes.set(peer.nodeId, socket);
       welcomed = true;
-      writeFrame(socket, { type: "welcome", protocol: 1, heartbeat_interval_ms: pingIntervalMs });
-      onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber });
+      try {
+        writeFrame(socket, { type: "welcome", protocol: 1, heartbeat_interval_ms: pingIntervalMs });
+        onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber });
+      } catch {
+        rejectPeer();
+        return;
+      }
       pingTimer = setInterval(() => {
         if (Date.now() - lastPongAt > pingIntervalMs * 3) { rejectPeer(); return; }
         sequence += 1;
@@ -134,6 +148,7 @@ export function createNodeTunnelServer({
     });
     socket.once("error", cleanup);
   });
+  server.maxConnections = maxConnections;
   return server;
 }
 
