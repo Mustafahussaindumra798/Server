@@ -18,7 +18,7 @@ function validateDeploymentPayload(payload) {
   if (!Number.isInteger(payload.container_port) || payload.container_port < 1 || payload.container_port > 65535) throw new Error("Container port must be an integer from 1 to 65535.");
   const resources = payload.resources;
   if (!resources || typeof resources !== "object" || Array.isArray(resources) ||
-      Object.keys(resources).some((key) => !["cpu_millicores", "memory_bytes"].includes(key)) ||
+      Object.keys(resources).some((key) => !["cpu_millicores", "memory_bytes", "disk_bytes"].includes(key)) ||
       !Number.isInteger(resources.cpu_millicores) || resources.cpu_millicores < 50 || resources.cpu_millicores > 64000 ||
       !Number.isSafeInteger(resources.memory_bytes) || resources.memory_bytes < MIN_MEMORY_BYTES || resources.memory_bytes > MAX_MEMORY_BYTES ||
       !Number.isSafeInteger(resources.disk_bytes) || resources.disk_bytes < MIN_DISK_BYTES || resources.disk_bytes > MAX_DISK_BYTES) {
