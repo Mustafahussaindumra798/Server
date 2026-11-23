@@ -37,6 +37,8 @@ RAM used is calculated as total minus MemAvailable, and RAM available is reporte
 The API accepts up to 20 finite numeric metrics in a 16 KiB payload. Capacity triples must be internally consistent; CPU cores must be 1–256, CPU/battery percentages 0–100, CPU frequency at most 10,000 MHz and temperature at most 150 °C. Unknown keys and malformed values are rejected. Resource admission requires fresh cpu_cores, cpu_percent, memory_available_bytes and disk_available_bytes telemetry.
 
 ## Authentication and persistence
+The heartbeat body also includes a `capabilities` JSON object (maximum 8 KiB). It reports the agent protocol, supported diagnostic handlers, service manager and runtime probe results. The agent refreshes this object on every heartbeat so Podman installation/removal and cgroup changes are reflected without re-enrollment. Migration `008_runtime_capability_heartbeat.sql` adds a six-argument authenticated heartbeat function that updates `nodes.capabilities_json`; the original five-argument function remains available for older agents. Capability values are node-reported observations, not authorization by themselves. `workload_execution` remains false until the separate workload executor is implemented and qualified.
+
 
 The API hashes the presented credential with SHA-256 and passes only the hash to a SECURITY DEFINER database function. The function checks node ID, credential hash, revocation, expiry and node revocation state atomically. It updates credential last-use time, node last-seen time, agent version, resource metrics and health status. Secrets and hashes are not returned.
 
