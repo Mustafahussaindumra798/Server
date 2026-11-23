@@ -66,15 +66,15 @@ export function createRouteForwarder({
       if (STREAM_ID.test(id || "")) send(tunnelSocket, { type: "route_error", stream_id: id, code: "OPEN_REJECTED" });
       return false;
     }
+    if (consumed.size >= MAX_CONSUMED_GRANTS) {
+      send(tunnelSocket, { type: "route_error", stream_id: id, code: "GRANT_CAPACITY" });
+      return false;
+    }
     let claims;
     try {
       claims = verifyRouteGrant(message.grant, publicKeyPem, { expectedNodeId: nodeId, consumedJtis: consumed });
     } catch {
       send(tunnelSocket, { type: "route_error", stream_id: id, code: "GRANT_REJECTED" });
-      return false;
-    }
-    if (consumed.size >= MAX_CONSUMED_GRANTS) {
-      send(tunnelSocket, { type: "route_error", stream_id: id, code: "GRANT_CAPACITY" });
       return false;
     }
     const local = connectImpl({ host: "127.0.0.1", port: claims.upstream.port });
