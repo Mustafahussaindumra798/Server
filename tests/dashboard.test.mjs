@@ -49,7 +49,8 @@ test("dashboard exposes create flows for applications, deployments and members",
   for (const id of ["create-application-button", "create-deployment-button", "create-member-button", "create-diagnostic-job"]) assert.match(html, new RegExp('id="' + id + '"'));
   for (const route of ["/applications", "/deployments", "/members", "/jobs"]) assert.ok(app.includes(route));
   assert.match(app, /Workspace members/);
-  assert.match(app, /workload execution is not enabled/i);
+  assert.match(app, /health endpoint/);
+  assert.match(app, /health_check_timeout_seconds/);
 });
 
 test("transient dashboard failures do not automatically erase a valid session", async () => {
