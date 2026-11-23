@@ -115,7 +115,7 @@
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
 - [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
-- [ ] Apply migrations 007–009 to production DB and deploy the verified `main` build
+- [ ] Apply migrations 007–010 to production DB and deploy the verified `main` build
 - [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
@@ -132,7 +132,13 @@
 - [x] Dashboard collects immutable image digest and container port; generic job API remains diagnostic-only
 - [x] API, health and PostgreSQL integration tests added for deployment job orchestration (CI run #301 passed)
 - [ ] Add durable runtime reconciliation after node restart and expired job leases
-- [ ] Add application health checks, revision health gates and rollback policy
+- [x] Add configurable HTTP health-check path and timeout to deployment requests (migration 010)
+- [x] Node agent polls loopback-mapped application endpoint and requires HTTP 2xx before reporting `workload_healthy`
+- [x] Unhealthy containers are best-effort stopped/removed; failed jobs use bounded retry policy and terminal failures mark deployments failed
+- [x] Database marks a deployment healthy only when the successful job attempt contains the explicit `workload_healthy` result code and records `health_checked_at`
+- [x] Dashboard/API expose health-check configuration and verification timestamp
+- [x] API, agent, health and PostgreSQL integration tests added for health gates
+- [ ] Add automatic rollback to the previous healthy revision after terminal failure
 - [ ] Add reverse-proxy ingress, TLS, host routing and safe port lifecycle
 - [ ] Enforce per-container disk quotas and complete resource isolation
 - [ ] Physical-node capacity qualification and real workload execution
