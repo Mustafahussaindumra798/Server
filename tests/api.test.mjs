@@ -41,6 +41,10 @@ function fakePool(role = "viewer") {
       if (query.startsWith("SELECT membership.role")) {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
+      if (query.startsWith("SELECT id, desired_state FROM applications WHERE id =")) return { rows: [{ id: params[0], desired_state: "stopped" }], rowCount: 1 };
+      if (query.startsWith("UPDATE applications SET desired_state")) return { rows: [{ id: params[0], tenant_id: tenantId, name: "Test app", desired_state: params[2], resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
+      if (query.startsWith("SELECT id, desired_state, status FROM deployments WHERE id =")) return { rows: [{ id: params[0], desired_state: "running", status: "scheduled" }], rowCount: 1 };
+      if (query.startsWith("UPDATE deployments SET desired_state = 'stopped'")) return { rows: [{ id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "stopped", status: "cancelled", resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, resource_requests_json FROM applications")) return { rows: [{ id: appId, resource_requests_json: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 } }], rowCount: 1 };
       if (query.includes("memory_total_bytes") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", cpu_cores: 4, resources: { cpu_percent: 10, memory_total_bytes: 8589934592, memory_used_bytes: 1073741824, memory_available_bytes: 7516192768, disk_available_bytes: 100000000000 } }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, name, desired_state")) return { rows: [], rowCount: 0 };
@@ -103,6 +107,47 @@ test("viewer cannot create an application", async (t) => {
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO applications")), false);
 });
 
+
+test("owner can change application desired state and the change is audited", async (t) => {
+  const api = await startApi("owner"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/applications/" + appId + "/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "running" })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.application.desired_state, "running");
+  assert.equal(payload.runtime_enabled, false);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE applications SET desired_state")), true);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "application.state.changed"), true);
+});
+
+test("viewer cannot change application desired state", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/applications/" + appId + "/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "running" })
+  });
+  assert.equal(response.status, 403);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE applications SET desired_state")), false);
+});
+
+test("operator can cancel a queued deployment revision", async (t) => {
+  const api = await startApi("operator"); t.after(api.close);
+  const deploymentId = "50000000-0000-4000-8000-000000000001";
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments/" + deploymentId + "/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "stopped" })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.deployment.desired_state, "stopped");
+  assert.equal(payload.deployment.status, "cancelled");
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "deployment.cancelled"), true);
+});
 
 test("running deployment requires fresh telemetry and sufficient reserved capacity", async (t) => {
   const api = await startApi("operator"); t.after(api.close);
