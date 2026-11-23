@@ -67,6 +67,22 @@ export function createHealthHandler(databasePool) {
             WHERE table_schema = 'public' AND table_name = 'deployments'
               AND column_name = 'rollback_attempt_for_deployment_id'
           ) AS deployment_automatic_rollback,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'runtime_local_port'
+          ) AS deployment_runtime_local_port,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'job_attempts'
+              AND column_name = 'result_json'
+          ) AS job_attempt_result_json,
+          EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = to_regclass('public.job_attempts')
+              AND tgname = 'job_attempts_record_deployment_endpoint'
+              AND NOT tgisinternal
+          ) AS deployment_endpoint_registration,
           COALESCE(position('deployment.rollback.queued' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_rollback_reconciliation,
           COALESCE(position('workload_healthy' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_health_reconciliation,
           COALESCE(position('workload_stopped' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_stop_reconciliation,
@@ -86,7 +102,7 @@ export function createHealthHandler(databasePool) {
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb)') IS NOT NULL AS heartbeat_function,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
-          to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text)') IS NOT NULL AS acknowledge_job_function,
+          to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text,jsonb)') IS NOT NULL AS acknowledge_job_function,
           to_regprocedure('app_private.reconcile_node_deployments(uuid)') IS NOT NULL AS runtime_reconciliation_function
       `);
       const schema = result.rows[0] || {};
@@ -100,8 +116,9 @@ export function createHealthHandler(databasePool) {
       const deploymentLifecycleReady = schema.deployment_stop_reconciliation && schema.deployment_restart_reconciliation;
       const runtimeReconciliationReady = schema.runtime_reconciliation_function;
       const deploymentRollbackReady = schema.deployment_automatic_rollback && schema.deployment_rollback_reconciliation;
+      const deploymentEndpointReady = schema.deployment_runtime_local_port && schema.job_attempt_result_json && schema.deployment_endpoint_registration;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -115,7 +132,8 @@ export function createHealthHandler(databasePool) {
             ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : []),
             ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : []),
             ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : []),
-            ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : [])
+            ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : []),
+            ...(!deploymentEndpointReady ? ["014_runtime_endpoint_registration"] : [])
           ]
         }));
         return;
@@ -133,7 +151,8 @@ export function createHealthHandler(databasePool) {
         deployment_health_checks: "ready",
         deployment_lifecycle_jobs: "ready",
         durable_runtime_reconciliation: "ready",
-        automatic_deployment_rollback: "ready"
+        automatic_deployment_rollback: "ready",
+        runtime_endpoint_registration: "ready"
       }));
     } catch {
       response.statusCode = 503;
