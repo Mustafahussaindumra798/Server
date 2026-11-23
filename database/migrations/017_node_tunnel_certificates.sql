@@ -30,6 +30,70 @@ CREATE POLICY node_tunnel_certificates_read_member
   USING (app_private.is_tenant_member(tenant_id));
 -- No direct write policy. Provisioning and revocation are operator-controlled.
 
+CREATE OR REPLACE FUNCTION app_private.guard_node_tunnel_certificate_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, app_private
+AS $guard_tunnel_certificate$
+BEGIN
+  IF ROW(NEW.tenant_id, NEW.node_id, NEW.fingerprint_sha256, NEW.serial_number,
+         NEW.not_before, NEW.not_after)
+     IS DISTINCT FROM
+     ROW(OLD.tenant_id, OLD.node_id, OLD.fingerprint_sha256, OLD.serial_number,
+         OLD.not_before, OLD.not_after) THEN
+    RAISE EXCEPTION 'Tunnel certificate identity and validity metadata are immutable'
+      USING ERRCODE = '23514';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
+    RAISE EXCEPTION 'A revoked tunnel certificate cannot be reactivated or rewritten'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END
+$guard_tunnel_certificate$;
+
+CREATE TRIGGER node_tunnel_certificate_immutable
+  BEFORE UPDATE ON public.node_tunnel_certificates
+  FOR EACH ROW EXECUTE FUNCTION app_private.guard_node_tunnel_certificate_mutation();
+
+CREATE OR REPLACE FUNCTION app_private.audit_node_tunnel_certificate_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, app_private
+AS $audit_tunnel_certificate$
+DECLARE v_action text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_action := 'node.tunnel_certificate.registered';
+  ELSIF OLD.revoked_at IS NULL AND NEW.revoked_at IS NOT NULL THEN
+    v_action := 'node.tunnel_certificate.revoked';
+  ELSE
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.audit_events (
+    tenant_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json
+  ) VALUES (
+    NEW.tenant_id, 'system', NULL, v_action, 'node_tunnel_certificate', NEW.id,
+    jsonb_build_object(
+      'node_id', NEW.node_id,
+      'fingerprint_sha256', NEW.fingerprint_sha256,
+      'serial_number', NEW.serial_number,
+      'not_after', NEW.not_after
+    )
+  );
+  RETURN NEW;
+END
+$audit_tunnel_certificate$;
+
+CREATE TRIGGER node_tunnel_certificate_audit_insert
+  AFTER INSERT ON public.node_tunnel_certificates
+  FOR EACH ROW EXECUTE FUNCTION app_private.audit_node_tunnel_certificate_change();
+CREATE TRIGGER node_tunnel_certificate_audit_revoke
+  AFTER UPDATE OF revoked_at ON public.node_tunnel_certificates
+  FOR EACH ROW EXECUTE FUNCTION app_private.audit_node_tunnel_certificate_change();
+
 CREATE OR REPLACE FUNCTION app_private.authorize_node_tunnel_certificate(
   p_fingerprint_sha256 text,
   p_node_id uuid
