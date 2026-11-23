@@ -37,6 +37,22 @@ export function createHealthHandler(databasePool) {
             WHERE table_schema = 'public' AND table_name = 'nodes'
               AND column_name = 'resource_metrics_json'
           ) AS node_resource_metrics,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'image_digest'
+          ) AS deployment_image_digest,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'container_port'
+          ) AS deployment_container_port,
+          EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgrelid = 'public.jobs'::regclass
+              AND tgname = 'jobs_reconcile_deployment_status'
+              AND NOT tgisinternal
+          ) AS deployment_job_reconciliation,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb)') IS NOT NULL AS heartbeat_function,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
@@ -48,8 +64,9 @@ export function createHealthHandler(databasePool) {
         schema.acknowledge_job_function;
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
+      const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -58,7 +75,8 @@ export function createHealthHandler(databasePool) {
           schema: baseReady ? "partial" : "incomplete",
           pending_migrations: [
             ...(!resourceAdmissionReady ? ["007_resource_admission"] : []),
-            ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : [])
+            ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : []),
+            ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : [])
           ]
         }));
         return;
@@ -71,7 +89,8 @@ export function createHealthHandler(databasePool) {
         database: "connected",
         schema: "ready",
         resource_admission: "ready",
-        runtime_capabilities: "ready"
+        runtime_capabilities: "ready",
+        deployment_job_orchestration: "ready"
       }));
     } catch {
       response.statusCode = 503;
