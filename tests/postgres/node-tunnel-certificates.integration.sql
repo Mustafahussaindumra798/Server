@@ -6,6 +6,7 @@ DECLARE
   v_node uuid;
   v_other_node uuid;
   v_fingerprint text := repeat('a', 64);
+  v_expired_fingerprint text := repeat('b', 64);
   v_authorized boolean;
   v_certificate_id uuid;
 BEGIN
@@ -47,18 +48,17 @@ BEGIN
     RAISE EXCEPTION 'Certificate fingerprint was accepted for a different node';
   END IF;
 
-  UPDATE public.node_tunnel_certificates
-     SET not_after = clock_timestamp() - interval '1 second'
-   WHERE id = v_certificate_id;
-  SELECT app_private.authorize_node_tunnel_certificate(v_fingerprint, v_node)
+  INSERT INTO public.node_tunnel_certificates (
+    tenant_id, node_id, fingerprint_sha256, serial_number, not_before, not_after
+  ) VALUES (
+    v_tenant, v_node, v_expired_fingerprint, 'test-serial-expired',
+    clock_timestamp() - interval '1 day', clock_timestamp() - interval '1 second'
+  );
+  SELECT app_private.authorize_node_tunnel_certificate(v_expired_fingerprint, v_node)
     INTO v_authorized;
   IF v_authorized IS DISTINCT FROM false THEN
     RAISE EXCEPTION 'Expired tunnel certificate was accepted';
   END IF;
-
-  UPDATE public.node_tunnel_certificates
-     SET not_after = clock_timestamp() + interval '1 day'
-   WHERE id = v_certificate_id;
   UPDATE public.nodes SET status = 'offline' WHERE id = v_node;
   SELECT app_private.authorize_node_tunnel_certificate(v_fingerprint, v_node)
     INTO v_authorized;
