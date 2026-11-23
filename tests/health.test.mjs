@@ -22,7 +22,10 @@ const readySchema = {
   heartbeat_function: true,
   claim_jobs_function: true,
   acknowledge_job_function: true,
-  capability_heartbeat_function: true
+  capability_heartbeat_function: true,
+  deployment_image_digest: true,
+  deployment_container_port: true,
+  deployment_job_reconciliation: true
 };
 
 test("health reports ready only when the existing control-plane schema is complete", async () => {
@@ -36,7 +39,8 @@ test("health reports ready only when the existing control-plane schema is comple
     database: "connected",
     schema: "ready",
     resource_admission: "ready",
-    runtime_capabilities: "ready"
+    runtime_capabilities: "ready",
+    deployment_job_orchestration: "ready"
   });
 });
 
