@@ -673,6 +673,11 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
               FROM nodes AS node
               WHERE node.tenant_id = $1
                 AND node.approved_at IS NOT NULL
+                AND node.platform = 'linux'
+                AND node.capabilities_json #>> '{runtime_probe,podman,ready}' = 'true'
+                AND node.capabilities_json #>> '{runtime_probe,podman,rootless}' = 'true'
+                AND node.capabilities_json #>> '{runtime_probe,podman,cgroup_version}' = 'v2'
+                AND node.capabilities_json #>> '{runtime_probe,podman,cgroup_v2_available}' = 'true'
                 AND node.status IN ('online', 'degraded')
                 AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
                 AND node.resource_metrics_json ?& ARRAY['cpu_cores','cpu_percent','memory_total_bytes','memory_available_bytes','disk_available_bytes']
