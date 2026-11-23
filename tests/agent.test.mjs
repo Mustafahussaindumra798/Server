@@ -187,7 +187,7 @@ test("agent terminally rejects workload jobs on nodes without qualified Podman",
       deployment_id: "40000000-0000-4000-8000-000000000001",
       image: "registry.example.com/cloudexify/demo@sha256:" + "a".repeat(64),
       container_port: 8080,
-      resources: { cpu_millicores: 500, memory_bytes: 268435456 }
+      resources: { cpu_millicores: 500, memory_bytes: 268435456, disk_bytes: 1073741824 }
     },
     attempt_id: "70000000-0000-4000-8000-000000000001",
     lease_token: "80000000-0000-4000-8000-000000000001"
