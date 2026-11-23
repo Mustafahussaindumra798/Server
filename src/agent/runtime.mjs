@@ -25,10 +25,25 @@ function validateDeploymentPayload(payload) {
 }
 
 export class PodmanWorkloadRuntime {
-  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000 } = {}) {
+  constructor({ runCommand = execFileAsync, runtimeProbe, timeoutMs = 30000, cosignBinary = "cosign", trustKeyPath = "/etc/cloudexify/trust.pub" } = {}) {
     this.runCommand = runCommand;
     this.runtimeProbe = runtimeProbe;
     this.timeoutMs = timeoutMs;
+    this.cosignBinary = cosignBinary;
+    this.trustKeyPath = trustKeyPath;
+  }
+
+  async verifyImage(image) {
+    try {
+      await this.runCommand(this.cosignBinary, ["verify", "--key", this.trustKeyPath, image], {
+        timeout: 30000,
+        maxBuffer: 256 * 1024,
+        windowsHide: true
+      });
+    } catch (error) {
+      const detail = String(error?.stderr || error?.message || "signature verification failed").replace(/[\\r\\n]+/g, " ").slice(0, 500);
+      throw new Error("OCI image signature verification failed: " + detail);
+    }
   }
 
   async command(args, timeout = this.timeoutMs) {
@@ -68,6 +83,7 @@ export class PodmanWorkloadRuntime {
     }
     if (existing) await this.command(["rm", "--force", payload.container_name]);
 
+    await this.verifyImage(payload.image);
     await this.command(["pull", "--quiet", payload.image], 300000);
     const args = [
       "run", "--detach",
