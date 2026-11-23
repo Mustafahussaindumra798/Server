@@ -1,12 +1,14 @@
 BEGIN;
 
+-- A rollback reactivates the previous immutable revision in place. This avoids
+-- creating a duplicate container and double-reserving its CPU/memory/disk.
 ALTER TABLE public.deployments
-  ADD COLUMN rollback_of_deployment_id uuid
+  ADD COLUMN rollback_attempt_for_deployment_id uuid
     REFERENCES public.deployments(id) ON DELETE RESTRICT;
 
-CREATE UNIQUE INDEX deployments_one_automatic_rollback_idx
-  ON public.deployments (rollback_of_deployment_id)
-  WHERE rollback_of_deployment_id IS NOT NULL;
+CREATE UNIQUE INDEX deployments_one_automatic_rollback_attempt_idx
+  ON public.deployments (rollback_attempt_for_deployment_id)
+  WHERE rollback_attempt_for_deployment_id IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION app_private.reconcile_deployment_job_status()
 RETURNS trigger
@@ -19,8 +21,6 @@ DECLARE
   v_deployment public.deployments%ROWTYPE;
   v_previous public.deployments%ROWTYPE;
   v_application_state text;
-  v_next_revision integer;
-  v_rollback_id uuid;
   v_rollback_job_id uuid;
 BEGIN
   IF NEW.deployment_id IS NULL OR NEW.type NOT IN ('deploy','stop','restart')
@@ -64,25 +64,30 @@ BEGIN
     FROM public.deployments
    WHERE id = NEW.deployment_id AND tenant_id = NEW.tenant_id;
 
-  -- A rollback revision is considered complete only after its own HTTP
-  -- health check succeeds. The failed revision is then marked rolled_back.
-  IF NEW.type = 'deploy' AND NEW.status = 'succeeded'
+  -- The previous revision becomes the active healthy revision again only
+  -- after its restart job passes the configured HTTP health check.
+  IF NEW.type = 'restart' AND NEW.status = 'succeeded'
      AND v_result_code = 'workload_healthy'
-     AND v_deployment.rollback_of_deployment_id IS NOT NULL THEN
+     AND v_deployment.rollback_attempt_for_deployment_id IS NOT NULL THEN
     UPDATE public.deployments
        SET status = 'rolled_back', updated_at = clock_timestamp()
-     WHERE id = v_deployment.rollback_of_deployment_id
+     WHERE id = v_deployment.rollback_attempt_for_deployment_id
        AND tenant_id = NEW.tenant_id
        AND status = 'failed'
        AND desired_state = 'running';
+
+    UPDATE public.deployments
+       SET rollback_attempt_for_deployment_id = NULL,
+           updated_at = clock_timestamp()
+     WHERE id = v_deployment.id
+       AND tenant_id = NEW.tenant_id;
   END IF;
 
-  -- Only terminal failures of ordinary deploy revisions may initiate a
-  -- rollback. Retryable failures are re-queued by acknowledge_node_job().
-  -- A rollback revision cannot recursively initiate another rollback.
+  -- Only terminal failures of normal deploy jobs can initiate rollback.
+  -- Retryable failures are re-queued by acknowledge_node_job(); restart
+  -- failures never recursively initiate another rollback.
   IF NEW.type = 'deploy'
      AND NEW.status IN ('failed','rejected')
-     AND v_deployment.rollback_of_deployment_id IS NULL
      AND v_deployment.desired_state = 'running'
      AND (NEW.status = 'rejected' OR NEW.attempt_count >= NEW.max_attempts) THEN
 
@@ -104,58 +109,40 @@ BEGIN
          AND previous.desired_state = 'running'
          AND previous.status = 'healthy'
          AND previous.health_checked_at IS NOT NULL
-         AND previous.image_digest IS NOT NULL
          AND previous.container_port BETWEEN 1 AND 65535
+         AND previous.rollback_attempt_for_deployment_id IS NULL
          AND node.approved_at IS NOT NULL
          AND node.status IN ('online','degraded')
          AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
        ORDER BY previous.revision DESC
-       LIMIT 1;
+       LIMIT 1
+       FOR UPDATE OF previous;
 
       IF v_previous.id IS NOT NULL THEN
-        SELECT COALESCE(MAX(revision), 0) + 1 INTO v_next_revision
-          FROM public.deployments
-         WHERE application_id = v_deployment.application_id
-           AND tenant_id = v_deployment.tenant_id;
+        UPDATE public.deployments
+           SET status = 'restarting',
+               rollback_attempt_for_deployment_id = v_deployment.id,
+               updated_at = clock_timestamp()
+         WHERE id = v_previous.id
+           AND tenant_id = v_previous.tenant_id
+           AND status = 'healthy'
+           AND rollback_attempt_for_deployment_id IS NULL;
 
-        INSERT INTO public.deployments (
-          tenant_id, application_id, revision, target_node_id,
-          desired_state, status, created_by, image_digest, container_port,
-          health_check_path, health_check_timeout_seconds,
-          resource_requests_json, rollback_of_deployment_id
-        ) VALUES (
-          v_previous.tenant_id, v_previous.application_id, v_next_revision,
-          v_previous.target_node_id, 'running', 'scheduled', v_deployment.created_by,
-          v_previous.image_digest, v_previous.container_port,
-          v_previous.health_check_path, v_previous.health_check_timeout_seconds,
-          v_previous.resource_requests_json, v_deployment.id
-        )
-        ON CONFLICT (rollback_of_deployment_id)
-          WHERE rollback_of_deployment_id IS NOT NULL
-        DO NOTHING
-        RETURNING id INTO v_rollback_id;
-
-        IF v_rollback_id IS NOT NULL THEN
+        IF FOUND THEN
           INSERT INTO public.jobs (
             tenant_id, node_id, deployment_id, type, payload_json, idempotency_key
           ) VALUES (
             v_previous.tenant_id,
             v_previous.target_node_id,
-            v_rollback_id,
-            'deploy',
+            v_previous.id,
+            'restart',
             jsonb_build_object(
-              'deployment_id', v_rollback_id,
-              'image', v_previous.image_digest,
+              'deployment_id', v_previous.id,
               'container_port', v_previous.container_port,
               'health_check_path', v_previous.health_check_path,
-              'health_check_timeout_seconds', v_previous.health_check_timeout_seconds,
-              'resources', jsonb_build_object(
-                'cpu_millicores', (v_previous.resource_requests_json->>'cpu_millicores')::integer,
-                'memory_bytes', (v_previous.resource_requests_json->>'memory_bytes')::bigint,
-                'disk_bytes', (v_previous.resource_requests_json->>'disk_bytes')::bigint
-              )
+              'health_check_timeout_seconds', v_previous.health_check_timeout_seconds
             ),
-            'deployment:' || v_rollback_id::text || ':automatic-rollback'
+            'deployment:' || v_previous.id::text || ':automatic-rollback:' || v_deployment.id::text
           )
           RETURNING id INTO v_rollback_job_id;
 
@@ -163,10 +150,10 @@ BEGIN
             tenant_id, actor_type, action, resource_type, resource_id, metadata_json
           ) VALUES (
             v_previous.tenant_id, 'system', 'deployment.rollback.queued',
-            'deployment', v_rollback_id,
+            'deployment', v_previous.id,
             jsonb_build_object(
               'failed_deployment_id', v_deployment.id,
-              'rollback_source_deployment_id', v_previous.id,
+              'restored_deployment_id', v_previous.id,
               'job_id', v_rollback_job_id
             )
           );
