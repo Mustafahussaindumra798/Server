@@ -19,11 +19,13 @@ export function createRouteForwarder({
   tunnelSocket,
   connectImpl = net.connect,
   maxStreams = MAX_STREAMS,
+  maxConsumedGrants = MAX_CONSUMED_GRANTS,
   idleTimeoutMs = 120000
 }) {
   if (typeof publicKeyPem !== "string" || !publicKeyPem.trim()) throw new Error("Route grant public key is required.");
   if (!tunnelSocket || typeof tunnelSocket.write !== "function") throw new Error("An authenticated tunnel socket is required.");
   if (!Number.isInteger(maxStreams) || maxStreams < 1 || maxStreams > MAX_STREAMS) throw new Error("Route stream limit is invalid.");
+  if (!Number.isInteger(maxConsumedGrants) || maxConsumedGrants < 1 || maxConsumedGrants > MAX_CONSUMED_GRANTS) throw new Error("Consumed route-grant limit is invalid.");
   const consumed = new Set();
   const streams = new Map();
   const blockedLocals = new Set();
@@ -66,7 +68,7 @@ export function createRouteForwarder({
       if (STREAM_ID.test(id || "")) send(tunnelSocket, { type: "route_error", stream_id: id, code: "OPEN_REJECTED" });
       return false;
     }
-    if (consumed.size >= MAX_CONSUMED_GRANTS) {
+    if (consumed.size >= maxConsumedGrants) {
       send(tunnelSocket, { type: "route_error", stream_id: id, code: "GRANT_CAPACITY" });
       return false;
     }
