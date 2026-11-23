@@ -80,7 +80,10 @@ export function createNodeTunnelServer({
       } catch { return false; }
     };
     const start = async () => {
-      if (!(await authorize())) { rejectPeer("NODE_TUNNEL_REVOKED"); return; }
+      const allowed = await authorize();
+      if (socket.destroyed) return;
+      if (!allowed) { rejectPeer("NODE_TUNNEL_REVOKED"); return; }
+      clearTimeout(handshakeTimer);
       welcomed = true;
       writeFrame(socket, { type: "welcome", protocol: 1, heartbeat_interval_ms: pingIntervalMs });
       onConnection({ nodeId: peer.nodeId, fingerprintSha256: peer.fingerprintSha256, serialNumber: peer.serialNumber });
@@ -118,7 +121,6 @@ export function createNodeTunnelServer({
             return;
           }
           handshakeStarted = true;
-          clearTimeout(handshakeTimer);
           void start();
         } else if (message.type === "pong" && Number.isSafeInteger(message.sequence) &&
                    message.sequence > lastPongSequence && message.sequence <= sequence) {
