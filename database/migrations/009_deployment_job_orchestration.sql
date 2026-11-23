@@ -45,4 +45,34 @@ EXECUTE FUNCTION app_private.reconcile_deployment_job_status();
 
 REVOKE ALL ON FUNCTION app_private.reconcile_deployment_job_status() FROM PUBLIC;
 
+CREATE OR REPLACE FUNCTION app_private.cancel_queued_deployment_jobs()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, app_private
+AS $cancel_jobs$
+BEGIN
+  IF NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM NEW.status THEN
+    UPDATE public.jobs AS job
+       SET status = 'cancelled',
+           lease_expires_at = NULL,
+           active_attempt_id = NULL,
+           lease_token = NULL,
+           updated_at = clock_timestamp()
+     WHERE job.deployment_id = NEW.id
+       AND job.tenant_id = NEW.tenant_id
+       AND job.status = 'queued';
+  END IF;
+  RETURN NEW;
+END
+$cancel_jobs$;
+
+DROP TRIGGER IF EXISTS deployments_cancel_queued_jobs ON public.deployments;
+CREATE TRIGGER deployments_cancel_queued_jobs
+AFTER UPDATE OF status ON public.deployments
+FOR EACH ROW
+EXECUTE FUNCTION app_private.cancel_queued_deployment_jobs();
+
+REVOKE ALL ON FUNCTION app_private.cancel_queued_deployment_jobs() FROM PUBLIC;
+
 COMMIT;
