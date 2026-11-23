@@ -70,6 +70,7 @@
 - [x] Strict typed diagnostic allowlist (`probe`, `collect_metrics`)
 - [x] Tenant-scoped jobs with idempotency, leases, retries and guarded acknowledgements
 - [x] PostgreSQL integration coverage for lease expiry/retry, final-attempt expiry, stale lease tokens and duplicate terminal acknowledgements (CI verification pending)
+- [x] Separate-session PostgreSQL integration test proving concurrent node claims lock distinct queued jobs (CI verification pending)
 - [x] Linux x86_64/aarch64 diagnostic node agent
 - [x] Automated agent integration test covers claimed `probe` and `collect_metrics` execution, lease-token/attempt-ID propagation, and accepted → running → succeeded acknowledgements (CI verification pending)
 - [x] Android/Termux environment detection and optional battery/thermal metric collection added
