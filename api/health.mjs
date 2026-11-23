@@ -38,23 +38,28 @@ export function createHealthHandler(databasePool) {
               AND column_name = 'resource_metrics_json'
           ) AS node_resource_metrics,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb)') IS NOT NULL AS heartbeat_function,
+          to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
           to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text)') IS NOT NULL AS acknowledge_job_function
       `);
       const schema = result.rows[0] || {};
       const baseReady = schema.applications_table && schema.deployments_table && schema.nodes_table &&
-        schema.node_resource_metrics && schema.heartbeat_function && schema.claim_jobs_function &&
+        schema.node_resource_metrics && schema.heartbeat_function && schema.capability_heartbeat_function && schema.claim_jobs_function &&
         schema.acknowledge_job_function;
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
+      const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
 
-      if (!baseReady || !resourceAdmissionReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
           service: "cloudexify-control-plane",
           database: "connected",
           schema: baseReady ? "partial" : "incomplete",
-          pending_migrations: resourceAdmissionReady ? [] : ["007_resource_admission"]
+          pending_migrations: [
+            ...(!resourceAdmissionReady ? ["007_resource_admission"] : []),
+            ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : [])
+          ]
         }));
         return;
       }
@@ -65,7 +70,8 @@ export function createHealthHandler(databasePool) {
         service: "cloudexify-control-plane",
         database: "connected",
         schema: "ready",
-        resource_admission: "ready"
+        resource_admission: "ready",
+        runtime_capabilities: "ready"
       }));
     } catch {
       response.statusCode = 503;
