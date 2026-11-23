@@ -563,7 +563,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
 
         if (resource === "nodes" && request.method === "GET") {
           requirePermission(role, "read");
-          const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, ingress_draining, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
+          const nodes = await client.query("SELECT id, tenant_id, name, platform, architecture, agent_version, CASE WHEN status = 'revoked' THEN 'revoked' WHEN status = 'pending' THEN 'pending' WHEN last_seen_at IS NULL OR last_seen_at < now() - make_interval(secs => heartbeat_interval_seconds * 3) THEN 'offline' ELSE status END AS status, last_seen_at, heartbeat_interval_seconds, ingress_draining, (approved_at IS NOT NULL AND status <> 'revoked') AS ingress_managed, (platform = 'linux' AND approved_at IS NOT NULL AND status = 'online' AND last_seen_at > now() - make_interval(secs => heartbeat_interval_seconds * 3) AND capabilities_json->>'ingress_tunnel' = 'true' AND capabilities_json->>'loopback_forwarder' = 'true') AS ingress_ready, resource_metrics_json AS resources FROM nodes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 200", [tenantId]);
           return { status: 200, body: { nodes: nodes.rows } };
         }
 
