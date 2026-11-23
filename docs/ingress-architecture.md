@@ -1,6 +1,6 @@
 # Ingress architecture decision
 
-**Status:** Accepted as the implementation direction; no public ingress is enabled by this document.
+**Status:** Accepted. HTTPS hostname proxy and tunnel data plane are implemented behind an explicit opt-in; public ingress remains disabled by default and is not production-qualified.
 **Scope:** Customer hostname routing for healthy deployments across independently networked nodes.
 
 ## Context
@@ -17,7 +17,7 @@ Use a **public ingress gateway plus node-initiated authenticated reverse tunnels
 2. A qualified Linux node establishes an outbound, mutually authenticated, persistent tunnel to the gateway. The node agent (or a separately supervised tunnel sidecar) owns reconnect, credential rotation and bounded backoff.
 3. The gateway forwards a request through the authenticated tunnel to the node-local proxy/endpoint. The node-side component may connect only to a loopback port registered by the control plane for the exact deployment assigned to that node.
 4. Container ports remain bound to loopback. No customer traffic is sent directly to a node's public IP or exposed container port.
-5. The control plane is authoritative for tenant ownership, verified domains, active deployment revision, target node, endpoint port and route state. The gateway consumes a narrowly scoped, authenticated route feed; it does not query arbitrary URLs or accept customer-supplied upstreams.
+5. The control plane is authoritative for tenant ownership, verified domains, healthy deployment, target node, endpoint port and route state. The gateway queries the route registry by normalized hostname and accepts only active, transport-qualified records; it never accepts customer-supplied upstream URLs or ports.
 
 This avoids depending on inbound reachability to nodes and works across NAT. It also separates public TLS and hostname routing from workload execution.
 
@@ -31,7 +31,7 @@ A route must be created or activated only when all of the following are true:
 - The deployment status is `healthy`, its node is approved and recently online, and its endpoint metadata is present and fresh.
 - The target node has a healthy authenticated tunnel and is explicitly qualified for ingress.
 
-Route states should be explicit and auditable (for example: pending verification, verified, pending certificate, active, draining, suspended, failed). Route changes must be idempotent and versioned. A route must be withdrawn on deployment stop, failed health, rollback transition, node revocation/offline expiry, domain verification loss or tenant suspension. A new revision becomes routable only after its health gate passes; rollback switches the route back only after the restored revision is healthy.
+Route states are explicit and auditable: `pending_transport`, `active` and `suspended` in the current registry; domain claims separately track verification. Route versions are signed into short-lived grants. Route changes must be idempotent and versioned. A route must be withdrawn on deployment stop, failed health, rollback transition, node revocation/offline expiry, domain verification loss or tenant suspension. A new revision becomes routable only after its health gate passes; rollback switches the route back only after the restored revision is healthy.
 
 ## Security requirements
 
@@ -65,7 +65,7 @@ The ingress gateway is the public TLS termination point. Issue certificates only
 
 Migration `016_deployment_domain_route_registry.sql` adds an internal `deployment_domain_routes` registry. A route intent is bound by composite tenant foreign keys to one verified domain claim, application, deployment and target node. Registration is restricted to tenant Owner/Admin and requires an active tenant, running application, healthy running deployment, a recently observed loopback endpoint, and an approved, online, recently heartbeating Linux node.
 
-The registry intentionally permits only `pending_transport` and `suspended` states. It stores no upstream URL, public IP or local port and has no active state. A route remains pending even when all workload checks pass because node-initiated mTLS transport, the restricted node-side forwarder and gateway authorization are not implemented. Lifecycle triggers suspend route intents when domain verification, deployment health, endpoint freshness or node qualification is lost, and can return an eligible route to pending transport after recovery. Route registration is audited. The health endpoint reports this component as `pending_transport_only`, not as public ingress readiness.
+Migration `016_deployment_domain_route_registry.sql` initially created only pending route intents. Migration `018_activate_ingress_routes.sql` adds the guarded `active` state. Routes activate only when domain/deployment/node eligibility is intact and the node heartbeat explicitly advertises both `ingress_tunnel=true` and `loopback_forwarder=true`; loss of any prerequisite suspends the route. The registry still stores no upstream URL, public IP or local port. The gateway reads the runtime loopback port from the associated healthy deployment record and signs it into a short-lived grant. Route registration remains tenant Owner/Admin restricted and audited.
 
 The database function `app_private.register_deployment_domain_route(domain_claim_id, deployment_id)` is the current internal registration interface. It is not a customer-facing route API and does not make DNS resolve or traffic flow.
 
@@ -74,18 +74,20 @@ The database function `app_private.register_deployment_domain_route(domain_claim
 1. Add tenant-scoped domain claims and verification challenge lifecycle with database constraints, RLS, audit events and integration tests.
 2. Add the fail-closed route-intent registry with tenant-bound domain/deployment/node relationships, eligibility checks, lifecycle withdrawal and PostgreSQL integration tests.
 3. [x] Implement per-node outbound mTLS control transport, node identity binding, database-backed certificate revocation checks and bounded reconnect behavior.
-4. Implement a signed/authorized route-grant protocol and restricted node-side loopback forwarder; never accept arbitrary host, port or upstream values.
-5. Implement gateway route synchronization, strict host matching, request limits, route versioning and fail-closed behavior.
-6. Add automated certificate issuance, renewal, rotation and expiry monitoring after DNS/domain verification is operational.
-7. Run security tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
-8. Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
+4. [x] Implement signed Ed25519 route grants and restricted node-side loopback forwarding; reject arbitrary host/port values.
+5. [x] Implement bounded gateway multiplexing, normalized hostname matching, HTTPS termination, HTTP reverse-proxy piping, request limits and per-stream backpressure controls.
+6. [x] Add guarded route activation/suspension based on node transport capability flags and current deployment/domain/node eligibility.
+7. [ ] Add automated certificate issuance, renewal, multi-certificate SNI, rotation and expiry monitoring after DNS/domain verification is operational.
+8. [ ] Add periodic in-flight route revalidation, multi-node scheduling/failover and route-drain coordination.
+9. [ ] Run security/load/failure tests for cross-tenant routing, forged Host headers, SSRF, stale route replay, tunnel impersonation, node revocation, deployment stop, rollback and gateway restart.
+10. [ ] Perform physical qualification on supported Debian 12 x86_64 and ARM64 Linux nodes before enabling customer traffic.
 
 ## mTLS transport implementation boundary
 
-Migration `017_node_tunnel_certificates.sql` adds per-node certificate fingerprint records and a database authorization function. `src/agent/tunnel.mjs` provides an outbound TLS 1.3 client with exact node-UUID certificate CN validation, gateway hostname validation, private ALPN, bounded reconnect backoff and terminal handling for gateway authorization rejection. `src/ingress/mtls-tunnel.mjs` provides the separate gateway-side mTLS listener, node identity binding, database-backed certificate authorization and periodic revocation/heartbeat rechecks. `tunnel-gateway.mjs` runs this listener on an explicit private interface; wildcard binds are rejected. The protocol accepts only bounded hello/welcome/ping/pong/error control frames.
+Migration `017_node_tunnel_certificates.sql` adds per-node certificate fingerprint records and a database authorization function. `src/agent/tunnel.mjs` provides an outbound TLS 1.3 client with exact node-UUID certificate CN validation, gateway hostname validation, private ALPN, bounded reconnect backoff and terminal handling for gateway authorization rejection. `src/ingress/mtls-tunnel.mjs` provides the separate gateway-side mTLS listener, node identity binding, database-backed certificate authorization and periodic revocation/heartbeat rechecks. `tunnel-gateway.mjs` runs this listener on an explicit private interface; wildcard binds are rejected. The protocol accepts bounded hello/welcome/ping/pong/error control frames plus route_open, route_opened, route_data, route_close, route_error, route_pause and route_resume frames.
 
-The transport has no customer data plane. It does not accept route grants, open local sockets, forward HTTP/TCP, or make a route active. Certificate issuance and rotation are currently operator-managed. The listener must remain private and forwarding remains disabled.
+The tunnel now carries bounded route frames in addition to control frames. The node verifies short-lived Ed25519 grants, opens only the signed 127.0.0.1 port, and enforces stream caps, idle timeout and gateway-driven pause/resume. The gateway multiplexes route streams and provides an opt-in HTTPS reverse proxy. The mTLS listener itself must remain private. Certificate issuance and rotation are operator-managed; the HTTPS listener is disabled unless explicitly enabled with a valid certificate and grant-signing key.
 
 ## Explicit non-goals and release gates
 
-This decision does not implement a proxy, tunnel, DNS automation, domain verification, certificate management or customer ingress. It does not make Android/Termux nodes production hosts. Do not publish container ports on public interfaces. Do not advertise customer-facing hosting until the full sequence, threat review, failure tests and physical Linux qualification pass.
+The current code does not yet provide automated ACME issuance/renewal, multi-certificate SNI, multi-node scheduling/failover, periodic in-flight route revalidation or physical Debian 12 qualification. Android/Termux nodes remain diagnostics-only. Do not publish container ports on public interfaces or enable the public HTTPS listener until migration 018 is applied to the correct Server database, TLS/firewall operations are provisioned, and threat, load, failure and physical-node release gates pass.
