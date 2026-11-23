@@ -36,7 +36,7 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 - A dedicated rootless `slirp4netns` network
 - Inbound TCP published only on node loopback with a dynamically assigned host port
 - CPU, memory and Podman overlay writable-layer disk limits (`--storage-opt=size=...`) plus a 128-process limit
-- Deployment placement requires the node's Podman overlay driver and explicit `CLOUDEXIFY_STORAGE_QUOTA_READY=true` operator attestation; this flag must only be set after project-quota support is provisioned and verified on the backing filesystem. Podman itself remains the final enforcement point and deployment fails closed if the storage option cannot be applied.
+- Deployment placement requires the node's Podman overlay driver, readable free-space metrics from Podman's actual `GraphRoot` filesystem, and explicit `CLOUDEXIFY_STORAGE_QUOTA_READY=true` operator attestation; this flag must only be set after project-quota support is provisioned and verified on the backing filesystem. Podman itself remains the final enforcement point and deployment fails closed if the storage option cannot be applied.
 - Read-only root filesystem and a bounded, no-exec temporary filesystem
 - All Linux capabilities dropped, no-new-privileges, and a non-root container UID
 - No host filesystem mounts or host networking
