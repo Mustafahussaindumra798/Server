@@ -122,14 +122,12 @@ test("gateway forcibly detaches a node when graceful route drain times out", asy
   });
   const socket = new FakeSocket();
   manager.attachNode({ nodeId, socket });
-  const pending = manager.openStream({ nodeId, grant: "grant" });
+  let closeError;
+  const pending = manager.openStream({ nodeId, grant: "grant", onClose: ({ error }) => { closeError = error; } });
   const id = socket.frames[0].stream_id;
   manager.handleNodeMessage(nodeId, { type: "route_opened", stream_id: id });
-  const stream = await pending;
-  let closeError;
-  stream.close = () => {};
-  const originalOpen = manager.activeStreams;
-  assert.equal(originalOpen, 1);
+  await pending;
+  assert.equal(manager.activeStreams, 1);
 
   const draining = manager.drainNode(nodeId, { timeoutMs: 5000 });
   assert.equal(typeof timeoutCallback, "function");
@@ -137,5 +135,5 @@ test("gateway forcibly detaches a node when graceful route drain times out", asy
   assert.deepEqual(await draining, { drained: false, activeStreams: 1 });
   assert.equal(manager.hasNode(nodeId), false);
   assert.equal(manager.activeStreams, 0);
-  assert.equal(closeError, undefined);
+  assert.match(closeError.message, /drain timed out/);
 });
