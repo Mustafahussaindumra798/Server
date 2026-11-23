@@ -126,7 +126,10 @@ export function createIngressRequestHandler({
   certificate,
   logger = () => {},
   maxRequestBytes = MAX_REQUEST_BYTES,
-  requestTimeoutMs = REQUEST_TIMEOUT_MS
+  requestTimeoutMs = REQUEST_TIMEOUT_MS,
+  revalidateIntervalMs = 15000,
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval
 }) {
   if (!pool || typeof pool.query !== "function") throw new Error("Ingress database pool is required.");
   if (!routeStreams || typeof routeStreams.openStream !== "function" || typeof routeStreams.hasNode !== "function") {
@@ -136,6 +139,12 @@ export function createIngressRequestHandler({
   if (!certificate || typeof certificate.checkHost !== "function") throw new Error("A parsed TLS certificate is required.");
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes < 1024 || maxRequestBytes > 1024 * 1024 * 1024) {
     throw new Error("Ingress request body limit is invalid.");
+  }
+  if (!Number.isSafeInteger(revalidateIntervalMs) || revalidateIntervalMs < 1000 || revalidateIntervalMs > 120000) {
+    throw new Error("Ingress route revalidation interval is invalid.");
+  }
+  if (typeof setIntervalImpl !== "function" || typeof clearIntervalImpl !== "function") {
+    throw new Error("Ingress route revalidation timer functions are invalid.");
   }
 
   return async function handleIngress(request, response) {
@@ -234,6 +243,31 @@ export function createIngressRequestHandler({
       return tunnel;
     };
 
+    let revalidationTimer = null;
+    let revalidationInFlight = false;
+    let routeTerminated = false;
+    const stopRevalidation = () => {
+      if (revalidationTimer !== null) {
+        clearIntervalImpl(revalidationTimer);
+        revalidationTimer = null;
+      }
+    };
+    const terminateRoute = (reason, error = null) => {
+      if (routeTerminated) return;
+      routeTerminated = true;
+      stopRevalidation();
+      logger("active_route_terminated", { route_id: route.route_id, reason, message: error?.message });
+      upstream.destroy(error || new Error("Ingress route is no longer eligible."));
+      agent.destroy();
+      if (response.writableEnded || response.destroyed) return;
+      if (!response.headersSent) {
+        response.writeHead(503, { "retry-after": "5", connection: "close" });
+        response.end("Application route is no longer available");
+      } else {
+        response.destroy(error || new Error("Ingress route is no longer eligible."));
+      }
+    };
+
     const headers = cleanHeaders(request.headers, hostname, request.socket.remoteAddress, "https");
     const upstream = http.request({
       host: hostname,
@@ -256,6 +290,65 @@ export function createIngressRequestHandler({
       upstreamResponse.pipe(response);
       upstreamResponse.once("end", () => agent.destroy());
     });
+
+    revalidationTimer = setIntervalImpl(async () => {
+      if (routeTerminated || response.writableEnded || response.destroyed || revalidationInFlight) return;
+      revalidationInFlight = true;
+      try {
+        const result = await pool.query(`
+          SELECT route.id AS route_id, route.route_version, route.node_id,
+                 claim.hostname, deployment.id AS deployment_id,
+                 deployment.runtime_local_port AS local_port
+            FROM public.deployment_domain_routes AS route
+            JOIN public.domain_claims AS claim
+              ON claim.id = route.domain_claim_id AND claim.tenant_id = route.tenant_id
+            JOIN public.tenants AS tenant ON tenant.id = route.tenant_id
+            JOIN public.applications AS application
+              ON application.id = route.application_id AND application.tenant_id = route.tenant_id
+            JOIN public.deployments AS deployment
+              ON deployment.id = route.deployment_id
+             AND deployment.application_id = route.application_id
+             AND deployment.tenant_id = route.tenant_id
+            JOIN public.nodes AS node
+              ON node.id = route.node_id AND node.tenant_id = route.tenant_id
+           WHERE route.id = $1
+             AND route.route_version = $2
+             AND route.node_id = $3
+             AND claim.hostname = $4
+             AND route.status = 'active'
+             AND route.reason_code = 'transport_ready'
+             AND claim.status = 'verified'
+             AND tenant.status = 'active'
+             AND application.desired_state = 'running'
+             AND deployment.desired_state = 'running'
+             AND deployment.status = 'healthy'
+             AND deployment.id = $5
+             AND deployment.target_node_id = node.id
+             AND deployment.runtime_local_port = $6
+             AND deployment.runtime_local_port BETWEEN 1 AND 65535
+             AND deployment.runtime_observed_at > clock_timestamp() - interval '5 minutes'
+             AND node.platform = 'linux'
+             AND node.approved_at IS NOT NULL
+             AND node.status = 'online'
+             AND node.capabilities_json->>'ingress_tunnel' = 'true'
+             AND node.capabilities_json->>'loopback_forwarder' = 'true'
+             AND node.last_seen_at > clock_timestamp() -
+                 make_interval(secs => node.heartbeat_interval_seconds * 3)
+           LIMIT 1
+        `, [route.route_id, route.route_version, route.node_id, hostname, route.deployment_id, route.local_port]);
+        if (!result.rows?.length || !routeStreams.hasNode(route.node_id)) {
+          terminateRoute("route_ineligible");
+        }
+      } catch (error) {
+        terminateRoute("revalidation_failed", error);
+      } finally {
+        revalidationInFlight = false;
+      }
+    }, revalidateIntervalMs);
+    revalidationTimer?.unref?.();
+    response.once("finish", stopRevalidation);
+    response.once("close", stopRevalidation);
+    request.once("aborted", stopRevalidation);
 
     let requestBytes = 0;
     request.on("data", (chunk) => {
