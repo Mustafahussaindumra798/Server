@@ -50,9 +50,14 @@ async function main() {
       ca: readTlsFile("CLOUDEXIFY_TUNNEL_CLIENT_CA")
     },
     authorizeCertificate: createTunnelCertificateAuthorizer(pool),
-    onConnection: ({ nodeId }) => process.stdout.write(JSON.stringify({
-      timestamp: new Date().toISOString(), event: "node_tunnel_authenticated", node_id: nodeId
-    }) + "\n")
+    onConnection: ({ nodeId, socket }) => {
+      routeStreams.attachNode({ nodeId, socket });
+      process.stdout.write(JSON.stringify({
+        timestamp: new Date().toISOString(), event: "node_tunnel_authenticated", node_id: nodeId
+      }) + "\n");
+    },
+    onDisconnect: ({ nodeId }) => routeStreams.detachNode(nodeId),
+    onRouteMessage: ({ nodeId, message }) => routeStreams.handleNodeMessage(nodeId, message)
   });
 
   await new Promise((resolve, reject) => {
@@ -70,6 +75,7 @@ async function main() {
   }) + "\n");
 
   const shutdown = () => {
+    routeStreams.closeAll();
     server.close(() => { void pool.end().finally(() => process.exit(0)); });
     setTimeout(() => process.exit(1), 10000).unref();
   };
