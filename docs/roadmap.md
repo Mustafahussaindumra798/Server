@@ -119,7 +119,7 @@
 - [x] Linux enrollment detects rootless Podman with a bounded fixed-argument probe; requires cgroup v2; never executes downloaded code
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
-- [ ] Persist refreshed runtime capabilities after enrollment and after runtime changes
+- [x] Refresh and persist runtime capabilities on every authenticated node heartbeat (migration 008; API, agent and health checks updated)
 - [ ] Implement signed/immutable artifact references and content verification
 - [ ] Implement rootless OCI deployment adapter, per-application isolation, bounded resource limits and process lifecycle
 - [ ] Physical-node capacity qualification and real workload execution
