@@ -162,7 +162,9 @@
 - [x] Implement Ed25519 signed route-grant primitives and node-authenticated control-plane authorization endpoint; grants bind route/version, tenant, verified hostname, deployment, exact node and DB-observed loopback port with a 30-second expiry
 - [x] Wire node-side Ed25519 grant verification and one-time replay tracking into tunnel `route_open` handling; reject wrong-node, expired, malformed and replayed grants
 - [x] Implement node-side loopback-only stream forwarder with signed-port binding, 32-stream cap, bounded data frames, idle timeout and disconnect cleanup
-- [ ] Implement gateway stream scheduler, multiplexed response handling, end-to-end backpressure and public reverse-proxy routing
+- [x] Implement bounded gateway stream multiplexing, node response-frame handling, per-node stream caps, open timeouts, disconnect cleanup and frame-size validation
+- [x] Add gateway-to-node request data framing and expose tunnel drain signals for upstream backpressure coordination
+- [ ] Implement node selection/scheduling across eligible nodes, HTTP reverse-proxy request/response piping and full end-to-end backpressure enforcement
 - [ ] Implement gateway host routing, route versioning, request limits and fail-closed synchronization
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
@@ -176,7 +178,7 @@
 
 ## Milestone 4 — Networking and operations
 - [x] Establish private outbound mTLS control transport between Linux nodes and the gateway
-- [ ] Restricted per-deployment loopback forwarding and route authorization
+- [x] Node-side signed-grant loopback forwarding and gateway multiplexed route-stream transport implemented; public request ingress remains disabled
 - [ ] Public domain routing, TLS termination, service discovery and ingress
 - [ ] Logs, metrics, alerts, backups and recovery drills
 - [ ] Upgrade strategy and credential rotation
