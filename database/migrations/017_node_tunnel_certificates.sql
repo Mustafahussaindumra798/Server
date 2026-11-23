@@ -36,7 +36,7 @@ CREATE OR REPLACE FUNCTION app_private.authorize_node_tunnel_certificate(
 )
 RETURNS boolean
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, app_private
 AS $authorize_tunnel_certificate$
