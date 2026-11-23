@@ -5,7 +5,8 @@ import { domainToASCII } from "node:url";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { createSupabaseAuthVerifier } from "./auth/supabase.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
-import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withNodeRuntimeReconciliation, withUserTransaction } from "./db/pool.mjs";
+import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withNodeRouteAuthorization, withNodeRuntimeReconciliation, withUserTransaction } from "./db/pool.mjs";
+import { createRouteGrantSigner } from "./ingress/route-grants.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -281,6 +282,27 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
         const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources, capabilities });
         if (!heartbeat) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
         send(response, 200, { node: { id: heartbeat.node_id, status: heartbeat.status, last_seen_at: heartbeat.last_seen_at } }, requestId);
+        return true;
+      }
+
+      const routeGrantMatch = url.pathname.match(/^\\/api\\/v1\\/nodes\\/([0-9a-f-]{36})\\/routes\\/([0-9a-f-]{36})\\/grant$/i);
+      if (routeGrantMatch && request.method === "GET") {
+        if (!pool) { const error = new Error("Node route authorization is not configured with a database."); error.status = 503; throw error; }
+        const nodeId = requireUuid(routeGrantMatch[1], "node_id");
+        const routeId = requireUuid(routeGrantMatch[2], "route_id");
+        const credential = nodeCredential(request);
+        if (!credential) { const error = new Error("A valid node credential is required."); error.status = 401; throw error; }
+        if (!env.CLOUDEXIFY_ROUTE_GRANT_PRIVATE_KEY) {
+          const error = new Error("Route grant signing is not configured.");
+          error.status = 503;
+          throw error;
+        }
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const authorizedRoute = await withNodeRouteAuthorization(pool, { nodeId, routeId, credentialHash });
+        if (authorizedRoute === null) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
+        if (!authorizedRoute) { const error = new Error("Route is not eligible for this node."); error.status = 404; throw error; }
+        const signed = createRouteGrantSigner(env.CLOUDEXIFY_ROUTE_GRANT_PRIVATE_KEY)(authorizedRoute, { ttlSeconds: 30 });
+        send(response, 200, { grant: signed.token, expires_at: new Date(signed.claims.exp * 1000).toISOString() }, requestId);
         return true;
       }
 
