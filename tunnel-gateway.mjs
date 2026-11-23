@@ -113,10 +113,15 @@ async function main() {
       keepAliveTimeout: 5000
     }, (request, response) => { void handler(request, response); });
     ingressServer.maxConnections = 1000;
-    await new Promise((resolve, reject) => {
-      ingressServer.once("error", reject);
-      ingressServer.listen(ingressPort, ingressHost, resolve);
-    });
+    try {
+      await new Promise((resolve, reject) => {
+        ingressServer.once("error", reject);
+        ingressServer.listen(ingressPort, ingressHost, resolve);
+      });
+    } catch (error) {
+      server.close(() => { void pool.end(); });
+      throw error;
+    }
     process.stdout.write(JSON.stringify({
       timestamp: new Date().toISOString(),
       event: "public_https_ingress_started",
