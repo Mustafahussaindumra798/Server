@@ -134,8 +134,8 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
   });
 }
 
-async function getNodeCapabilities(identity, env, tunnelConfigured) {
-  const capabilities = await getCapabilities(identity);
+export async function getNodeCapabilities(identity, env, tunnelConfigured, loadCapabilities = getCapabilities) {
+  const capabilities = await loadCapabilities(identity);
   const forwardingReady = identity.platform === "linux" &&
     tunnelConfigured &&
     Boolean(env.CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY);
