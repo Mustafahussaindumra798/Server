@@ -31,14 +31,15 @@ test("agent dispatches typed deploy, stop and restart jobs to the workload runti
   const runtime = {
     async deploy(payload) { calls.push(["deploy", payload]); return { result_code: "started" }; },
     async stop(id) { calls.push(["stop", id]); return { result_code: "stopped" }; },
-    async restart(id) { calls.push(["restart", id]); return { result_code: "restarted" }; }
+    async restart(id, options) { calls.push(["restart", id, options]); return { result_code: "restarted" }; }
   };
   const deploymentId = "40000000-0000-4000-8000-000000000001";
   const deployPayload = { deployment_id: deploymentId, image: "immutable" };
+  const restartPayload = { deployment_id: deploymentId, container_port: 8080, health_check_path: "/healthz", health_check_timeout_seconds: 30 };
   assert.equal((await executeWorkloadJob({ job_type: "deploy", payload: deployPayload }, { runtime })).result_code, "started");
   assert.equal((await executeWorkloadJob({ job_type: "stop", payload: { deployment_id: deploymentId } }, { runtime })).result_code, "stopped");
-  assert.equal((await executeWorkloadJob({ job_type: "restart", payload: { deployment_id: deploymentId } }, { runtime })).result_code, "restarted");
-  assert.deepEqual(calls, [["deploy", deployPayload], ["stop", deploymentId], ["restart", deploymentId]]);
+  assert.equal((await executeWorkloadJob({ job_type: "restart", payload: restartPayload }, { runtime })).result_code, "restarted");
+  assert.deepEqual(calls, [["deploy", deployPayload], ["stop", deploymentId], ["restart", deploymentId, restartPayload]]);
 });
 
 test("agent rejects malformed workload jobs and never accepts arbitrary command payloads", async () => {
