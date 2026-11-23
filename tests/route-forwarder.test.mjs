@@ -103,3 +103,25 @@ test("forwarder applies gateway pause and resume to the exact active upstream st
   assert.equal(forwarder.handle({ type: "route_pause", stream_id: "unknown" }), false);
   forwarder.close();
 });
+
+test("forwarder replay cache fails closed at capacity without growing", () => {
+  class FakeLocal extends EventEmitter {
+    constructor() { super(); this.destroyed = false; }
+    setNoDelay() {}
+    destroy() { this.destroyed = true; this.emit("close"); }
+  }
+  const tunnel = new TunnelSocket();
+  const forwarder = createRouteForwarder({
+    nodeId,
+    publicKeyPem: publicPem,
+    tunnelSocket: tunnel,
+    maxConsumedGrants: 1,
+    connectImpl: () => new FakeLocal()
+  });
+  assert.equal(forwarder.handle({ type: "route_open", stream_id: "cache1", grant: sign(route).token }), true);
+  assert.equal(forwarder.consumedGrantCount, 1);
+  assert.equal(forwarder.handle({ type: "route_open", stream_id: "cache2", grant: sign(route).token }), false);
+  assert.equal(forwarder.consumedGrantCount, 1);
+  assert.equal(tunnel.frames.at(-1).code, "GRANT_CAPACITY");
+  forwarder.close();
+});
