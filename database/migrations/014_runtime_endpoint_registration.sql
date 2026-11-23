@@ -177,7 +177,7 @@ BEGIN
        OR NEW.result_json->>'container_name' IS NULL
        OR NEW.result_json->>'container_name' <> ('cloudexify-' || v_job.deployment_id::text)
        OR NEW.result_json->>'local_port' IS NULL
-       OR (NEW.result_json->>'local_port') !~ '^[0-9]{1,5}'
+       OR translate(NEW.result_json->>'local_port', '0123456789', '') <> ''
        OR length(NEW.result_json->>'local_port') NOT BETWEEN 1 AND 5 THEN
        RETURN NEW;
     END IF;
