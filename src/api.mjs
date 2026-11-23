@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createOidcVerifier, getBearerToken } from "./auth/oidc.mjs";
 import { createSupabaseAuthVerifier } from "./auth/supabase.mjs";
 import { AuthorizationError, requirePermission, canAssignRole } from "./auth/rbac.mjs";
-import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withUserTransaction } from "./db/pool.mjs";
+import { withNodeEnrollment, withNodeHeartbeat, withNodeJobAcknowledgement, withNodeJobClaim, withNodeRuntimeReconciliation, withUserTransaction } from "./db/pool.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -256,6 +256,19 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, l
         const heartbeat = await withNodeHeartbeat(pool, { nodeId, credentialHash, agentVersion, healthStatus: body.health_status, resources, capabilities });
         if (!heartbeat) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
         send(response, 200, { node: { id: heartbeat.node_id, status: heartbeat.status, last_seen_at: heartbeat.last_seen_at } }, requestId);
+        return true;
+      }
+
+      const reconcileMatch = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/runtime\/reconcile$/i);
+      if (reconcileMatch && request.method === "POST") {
+        if (!pool) { const error = new Error("Node runtime reconciliation is not configured with a database."); error.status = 503; throw error; }
+        const nodeId = requireUuid(reconcileMatch[1], "node_id");
+        const credential = nodeCredential(request);
+        if (!credential) { const error = new Error("A valid node credential is required."); error.status = 401; throw error; }
+        const credentialHash = createHash("sha256").update(credential, "utf8").digest("hex");
+        const reconciledJobs = await withNodeRuntimeReconciliation(pool, { nodeId, credentialHash });
+        if (reconciledJobs === null) { const error = new Error("Node credential is invalid, expired or revoked."); error.status = 401; throw error; }
+        send(response, 200, { reconciled_jobs: reconciledJobs }, requestId);
         return true;
       }
 
