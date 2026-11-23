@@ -173,6 +173,8 @@
 - [x] Add route activation state and database lifecycle gate: only eligible verified-domain/healthy-deployment routes on nodes advertising ingress tunnel + loopback-forwarder readiness become active; node/deployment/domain ineligibility suspends them (migration 018)
 - [x] Require a live authenticated mTLS node session at request time and issue a short-lived signed loopback grant for the exact route/node
 - [x] Add node-level graceful route-stream draining: reject new streams, allow active streams to finish, and force-detach on timeout or node disconnect
+- [x] Add database-backed ingress drain state, audited Owner/Admin control API, grant/lookup admission gate and gateway reconciliation
+- [x] Connect database-backed node ingress drain state to Owner/Admin API controls and gateway stream drain/resume synchronization; preserve existing requests during drain
 - [ ] Implement multi-node route scheduling/failover, automated ACME/SNI certificate lifecycle, and production load/failure qualification
 - [ ] Implement TLS issuance, renewal, key rotation and expiry monitoring after domain verification
 - [ ] Add ingress security/failure tests and qualify supported Debian 12 Linux nodes before customer traffic
