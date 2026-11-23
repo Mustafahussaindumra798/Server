@@ -311,7 +311,7 @@ function renderPage() {
   const config = {
     overview: ["Compute nodes", "Latest node heartbeat and resource reports", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes.slice(0, 8)), "No nodes registered in this workspace.")],
     nodes: ["Compute nodes", "All registered compute nodes", table(["NODE", "PLATFORM", "RESOURCES", "STATUS", "LAST SEEN"], nodeRows(nodes), "No nodes registered in this workspace.")],
-    applications: ["Applications", "Desired state is stored; changing it does not start a workload until a runtime is enabled.", table(["APPLICATION", "DESIRED STATE", "UPDATED / ACTION"], applicationRows(applications, ["owner", "admin"].includes(currentRole)), "No applications registered in this workspace.")],
+    applications: ["Applications", "Stopping queues node jobs for active revisions; starting requires a new deployment revision.", table(["APPLICATION", "DESIRED STATE", "UPDATED / ACTION"], applicationRows(applications, ["owner", "admin"].includes(currentRole)), "No applications registered in this workspace.")],
     deployments: ["Deployments", "Stop or restart a revision on its assigned node. A revision becomes healthy only after its HTTP endpoint returns 2xx.", table(["REVISION", "APPLICATION ID", "DESIRED STATE", "STATUS", "CREATED / ACTION"], deploymentRows(deployments, ["owner", "admin", "operator"].includes(currentRole)), "No deployments recorded in this workspace.")],
     jobs: ["Node jobs", "Diagnostic job queue and execution state", table(["TYPE", "NODE ID", "STATUS", "ATTEMPTS", "UPDATED"], jobRows(jobs), "No jobs recorded in this workspace.")],
     members: ["Workspace members", "Members with access to this tenant", table(["MEMBER", "ROLE", "STATUS", "JOINED"], memberRows(state.data.members), "No workspace members found.")],
@@ -329,7 +329,7 @@ function renderPage() {
         const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/applications/" + encodeURIComponent(id) + "/state", {
           method: "POST", body: JSON.stringify({ desired_state: desiredState })
         });
-        dashboardMessage("Application desired state updated to " + desiredState + "; " + Number(result.cancelled_deployments || 0) + " queued deployment(s) cancelled. Workload runtime is not enabled.");
+        dashboardMessage("Application desired state updated to " + desiredState + "; " + Number(result.cancelled_deployments || 0) + " queued deployment(s) cancelled and " + Number(result.queued_stop_jobs || 0) + " active revision stop job(s) queued. Starting requires a new deployment revision.");
         await refreshData({ force: true });
       } catch (error) {
         dashboardMessage(error.message || "Unable to update application state.", true);
