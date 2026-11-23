@@ -20,13 +20,15 @@ The adapter accepts only these fields:
 - `resources.cpu_millicores`: 50–64000
 - `resources.memory_bytes`: 16 MiB–1 TiB
 
-Unknown fields, tags, mutable image references, arbitrary commands, environment injection, host mounts and privileged settings are rejected.
+Unknown fields, tags, mutable image references, arbitrary commands, environment injection, host mounts and privileged settings are rejected. A valid digest is not sufficient by itself: the image must also pass Cosign verification against the node's locally provisioned trust key.
 
 ## Container isolation
 
-The adapter invokes Podman with an argument array (never a shell) and enforces:
+The adapter verifies image signatures with Cosign, then invokes Podman with an argument array (never a shell) and enforces:
 
 - Rootless Podman and cgroup v2 qualification before every lifecycle operation
+- Cosign signature verification with the node administrator's trusted public key at `/etc/cloudexify/trust.pub` before pulling an image
+- Deployment placement requires fresh heartbeat capability evidence for Podman, rootless cgroup v2 and the configured Cosign trust key; Android/Termux and unqualified Linux nodes are excluded
 - A deterministic container name and Cloudexify ownership/deployment labels
 - A dedicated rootless `slirp4netns` network
 - Inbound TCP published only on node loopback with a dynamically assigned host port
@@ -53,6 +55,7 @@ This adapter is a tested execution primitive, not yet a complete public deployme
 4. Reverse-proxy ingress, TLS, host routing and safe port lifecycle.
 5. Per-container disk quota or a documented enforced storage boundary.
 6. Structured workload logs, metrics, cleanup and upgrade/recovery procedures.
-7. Debian 12 x86_64 and ARM64 qualification on real hosts.
+7. Provision and rotate the Cosign trust public key on every eligible node through a trusted node-administration process.
+8. Debian 12 x86_64 and ARM64 qualification on real hosts.
 
 The currently implemented adapter binds published ports to loopback only. It does not make applications publicly reachable.
