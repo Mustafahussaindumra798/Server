@@ -20,7 +20,7 @@ function makeToken() {
   return input + "." + sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url");
 }
 
-function fakePool(role = "viewer", { applicationDeployments = [], deploymentRecord = null, domainClaim = null, domainChallenge = null } = {}) {
+function fakePool(role = "viewer", { applicationDeployments = [], deploymentRecord = null, domainClaim = null, domainChallenge = null, ingressNode = null } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -30,7 +30,7 @@ function fakePool(role = "viewer", { applicationDeployments = [], deploymentReco
         return { rows: [{ id: userId, identity_subject: issuer + "|api-user", email: "api@example.test", display_name: "API User" }], rowCount: 1 };
       }
       if (query.startsWith("SELECT id, status, approved_at FROM nodes")) return { rows: [{ id: params[0], status: "pending", approved_at: null }], rowCount: 1 };
-      if (query.startsWith("SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds, capabilities_json, ingress_draining FROM nodes")) return { rows: [{
+      if (query.startsWith("SELECT id, status, approved_at, platform, last_seen_at, heartbeat_interval_seconds")) return { rows: [ingressNode || {
         id: params[0], status: "online", approved_at: new Date().toISOString(), platform: "linux",
         last_seen_at: new Date().toISOString(), heartbeat_interval_seconds: 30, heartbeat_fresh: true,
         capabilities_json: { ingress_tunnel: true, loopback_forwarder: true }, ingress_draining: false
@@ -374,6 +374,27 @@ test("owner can drain and resume an ingress-qualified node with audit events", a
   assert.equal(api.pool.calls.filter((call) => call.sql.startsWith("UPDATE nodes SET ingress_draining = $3")).length, 2);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.ingress.draining"), true);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "node.ingress.resumed"), true);
+});
+
+test("node ingress cannot be resumed on an unqualified platform", async (t) => {
+  const api = await startApi("owner", { ingressNode: {
+    id: "30000000-0000-4000-8000-000000000001",
+    status: "online",
+    approved_at: new Date().toISOString(),
+    platform: "android",
+    last_seen_at: new Date().toISOString(),
+    heartbeat_interval_seconds: 30,
+    heartbeat_fresh: true,
+    capabilities_json: { ingress_tunnel: true, loopback_forwarder: true },
+    ingress_draining: true
+  } }); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/nodes/30000000-0000-4000-8000-000000000001/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ ingress_state: "active" })
+  });
+  assert.equal(response.status, 409);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE nodes SET ingress_draining")), false);
 });
 
 test("viewer cannot change node ingress drain state", async (t) => {
