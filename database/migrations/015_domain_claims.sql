@@ -43,7 +43,7 @@ CREATE TABLE public.domain_verification_challenges (
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT domain_challenges_token_hash_format CHECK (token_hash ~ '^[0-9a-f]{64}$'),
   CONSTRAINT domain_challenges_record_name_nonempty CHECK (
-    length(record_name) BETWEEN 1 AND 260 AND record_name = lower(record_name)
+    length(record_name) BETWEEN 1 AND 280 AND record_name = lower(record_name)
   ),
   CONSTRAINT domain_challenges_expiry_window CHECK (
     expires_at > created_at AND expires_at <= created_at + interval '1 hour'
@@ -179,7 +179,63 @@ BEGIN
 END
 $verify_domain$;
 
+CREATE OR REPLACE FUNCTION app_private.revoke_expired_domain_challenges(
+  p_domain_claim_id uuid
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, app_private
+AS $revoke_expired$
+DECLARE
+  v_claim public.domain_claims%ROWTYPE;
+  v_challenge public.domain_verification_challenges%ROWTYPE;
+  v_user_id uuid := app_private.current_user_id();
+  v_now timestamptz := clock_timestamp();
+  v_count integer := 0;
+BEGIN
+  IF p_domain_claim_id IS NULL OR v_user_id IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  SELECT claim.* INTO v_claim
+    FROM public.domain_claims AS claim
+   WHERE claim.id = p_domain_claim_id
+   FOR UPDATE;
+
+  IF NOT FOUND
+     OR v_claim.status <> 'pending_verification'
+     OR NOT app_private.can_manage_tenant(v_claim.tenant_id) THEN
+    RETURN 0;
+  END IF;
+
+  FOR v_challenge IN
+    UPDATE public.domain_verification_challenges AS challenge
+       SET revoked_at = v_now
+     WHERE challenge.domain_claim_id = v_claim.id
+       AND challenge.tenant_id = v_claim.tenant_id
+       AND challenge.consumed_at IS NULL
+       AND challenge.revoked_at IS NULL
+       AND challenge.expires_at <= v_now
+    RETURNING challenge.*
+  LOOP
+    v_count := v_count + 1;
+    INSERT INTO public.audit_events (
+      tenant_id, actor_type, actor_id, action, resource_type, resource_id, metadata_json
+    ) VALUES (
+      v_claim.tenant_id, 'user', v_user_id, 'domain.challenge_expired',
+      'domain_claim', v_claim.id,
+      jsonb_build_object('challenge_id', v_challenge.id, 'hostname', v_claim.hostname)
+    );
+  END LOOP;
+
+  RETURN v_count;
+END
+$revoke_expired$;
+
 REVOKE ALL ON FUNCTION app_private.verify_domain_claim(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_private.verify_domain_claim(uuid, text) TO PUBLIC;
+REVOKE ALL ON FUNCTION app_private.revoke_expired_domain_challenges(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app_private.revoke_expired_domain_challenges(uuid) TO PUBLIC;
 
 COMMIT;
