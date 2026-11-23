@@ -48,6 +48,21 @@ export function createHealthHandler(databasePool) {
               AND column_name = 'container_port'
           ) AS deployment_container_port,
           EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'health_check_path'
+          ) AS deployment_health_check_path,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'health_check_timeout_seconds'
+          ) AS deployment_health_check_timeout,
+          EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'deployments'
+              AND column_name = 'health_checked_at'
+          ) AS deployment_health_checked_at,
+          EXISTS (
             SELECT 1 FROM pg_trigger
             WHERE tgrelid = to_regclass('public.jobs')
               AND tgname = 'jobs_reconcile_deployment_status'
@@ -71,8 +86,9 @@ export function createHealthHandler(databasePool) {
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
       const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation && schema.deployment_job_cancellation;
+      const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -82,7 +98,8 @@ export function createHealthHandler(databasePool) {
           pending_migrations: [
             ...(!resourceAdmissionReady ? ["007_resource_admission"] : []),
             ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : []),
-            ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : [])
+            ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : []),
+            ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : [])
           ]
         }));
         return;
@@ -96,7 +113,8 @@ export function createHealthHandler(databasePool) {
         schema: "ready",
         resource_admission: "ready",
         runtime_capabilities: "ready",
-        deployment_job_orchestration: "ready"
+        deployment_job_orchestration: "ready",
+        deployment_health_checks: "ready"
       }));
     } catch {
       response.statusCode = 503;
