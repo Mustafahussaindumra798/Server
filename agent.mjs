@@ -159,6 +159,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
       gatewayUrl: env.CLOUDEXIFY_TUNNEL_URL,
       credentials,
       signal,
+      routeGrantPublicKey: env.CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY || null,
       onState: (status) => onLog(status === "rejected" ? "error" : "info", "Node mTLS tunnel state changed", { node_id: state.node_id, tunnel_status: status })
     });
     onLog("info", "Outbound mTLS tunnel supervisor started", { node_id: state.node_id });
