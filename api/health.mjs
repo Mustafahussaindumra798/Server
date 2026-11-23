@@ -80,7 +80,8 @@ export function createHealthHandler(databasePool) {
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb)') IS NOT NULL AS heartbeat_function,
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
-          to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text)') IS NOT NULL AS acknowledge_job_function
+          to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text)') IS NOT NULL AS acknowledge_job_function,
+          to_regprocedure('app_private.reconcile_node_deployments(uuid)') IS NOT NULL AS runtime_reconciliation_function
       `);
       const schema = result.rows[0] || {};
       const baseReady = schema.applications_table && schema.deployments_table && schema.nodes_table &&
@@ -91,8 +92,9 @@ export function createHealthHandler(databasePool) {
       const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation && schema.deployment_job_cancellation;
       const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at && schema.deployment_health_reconciliation;
       const deploymentLifecycleReady = schema.deployment_stop_reconciliation && schema.deployment_restart_reconciliation;
+      const runtimeReconciliationReady = schema.runtime_reconciliation_function;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -104,7 +106,8 @@ export function createHealthHandler(databasePool) {
             ...(!runtimeCapabilitiesReady ? ["008_runtime_capability_heartbeat"] : []),
             ...(!deploymentOrchestrationReady ? ["009_deployment_job_orchestration"] : []),
             ...(!deploymentHealthReady ? ["010_deployment_health_checks"] : []),
-            ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : [])
+            ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : []),
+            ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : [])
           ]
         }));
         return;
@@ -120,7 +123,8 @@ export function createHealthHandler(databasePool) {
         runtime_capabilities: "ready",
         deployment_job_orchestration: "ready",
         deployment_health_checks: "ready",
-        deployment_lifecycle_jobs: "ready"
+        deployment_lifecycle_jobs: "ready",
+        durable_runtime_reconciliation: "ready"
       }));
     } catch {
       response.statusCode = 503;
