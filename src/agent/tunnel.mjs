@@ -91,7 +91,7 @@ function connectOnce({ connectImpl, endpoint, credentials, nodeId, signal, onSta
     const abort = () => socket.destroy();
     signal.addEventListener("abort", abort, { once: true });
     socket.once("error", (error) => finish(error));
-    socket.once("close", () => finish());
+    socket.once("close", () => finish(signal.aborted ? null : new Error("Tunnel connection closed unexpectedly.")));
     connectTimer = setTimeout(() => socket.destroy(new Error("Tunnel TCP/TLS connection timed out.")), handshakeTimeoutMs * 3);
     socket.once("secureConnect", () => {
       clearTimeout(connectTimer);
