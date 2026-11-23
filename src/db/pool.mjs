@@ -177,6 +177,7 @@ export async function withNodeRouteAuthorization(pool, authorization) {
          AND route.node_id = $2
          AND route.status = 'active'
          AND route.reason_code = 'transport_ready'
+         AND node.ingress_draining = false
          AND node.capabilities_json->>'ingress_tunnel' = 'true'
          AND node.capabilities_json->>'loopback_forwarder' = 'true'
          AND claim.status = 'verified'
