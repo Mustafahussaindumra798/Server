@@ -102,6 +102,47 @@ BEGIN
   IF (SELECT status FROM public.jobs WHERE id=v_cancel_job) <> 'cancelled' THEN
     RAISE EXCEPTION 'Cancelling a deployment did not cancel its queued node job';
   END IF;
+
+  INSERT INTO public.deployments (
+    tenant_id,application_id,revision,target_node_id,desired_state,status,
+    image_digest,container_port,resource_requests_json,health_check_path,health_check_timeout_seconds
+  ) VALUES (
+    v_tenant,v_app,5,v_node,'running','healthy',v_digest,8080,
+    '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}','/healthz',45
+  ) RETURNING id INTO v_deployment;
+  INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key)
+  VALUES (v_tenant,v_node,v_deployment,'stop',
+    jsonb_build_object('deployment_id',v_deployment),
+    'deployment:' || v_deployment::text || ':stop:test')
+  RETURNING id INTO v_job;
+  UPDATE public.deployments SET desired_state='stopped',status='stopping' WHERE id=v_deployment;
+  UPDATE public.jobs SET status='running' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'stopping' THEN
+    RAISE EXCEPTION 'Stop job acknowledgement did not preserve stopping state';
+  END IF;
+  INSERT INTO public.job_attempts (job_id,node_id,result_code,result_summary,started_at,finished_at)
+  VALUES (v_job,v_node,'workload_stopped','Podman confirmed stop',clock_timestamp(),clock_timestamp());
+  UPDATE public.jobs SET status='succeeded' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'stopped' THEN
+    RAISE EXCEPTION 'Successful stop job did not mark deployment stopped';
+  END IF;
+
+  UPDATE public.deployments SET desired_state='running',status='restarting' WHERE id=v_deployment;
+  INSERT INTO public.jobs (tenant_id,node_id,deployment_id,type,payload_json,idempotency_key)
+  VALUES (v_tenant,v_node,v_deployment,'restart',
+    jsonb_build_object('deployment_id',v_deployment,'container_port',8080,'health_check_path','/healthz','health_check_timeout_seconds',45),
+    'deployment:' || v_deployment::text || ':restart:test')
+  RETURNING id INTO v_job;
+  UPDATE public.jobs SET status='running' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'restarting' THEN
+    RAISE EXCEPTION 'Restart job acknowledgement did not set restarting state';
+  END IF;
+  INSERT INTO public.job_attempts (job_id,node_id,result_code,result_summary,started_at,finished_at)
+  VALUES (v_job,v_node,'workload_healthy','Restarted app passed HTTP health check',clock_timestamp(),clock_timestamp());
+  UPDATE public.jobs SET status='succeeded' WHERE id=v_job;
+  IF (SELECT status FROM public.deployments WHERE id=v_deployment) <> 'healthy' THEN
+    RAISE EXCEPTION 'Restart job did not return deployment to healthy after HTTP verification';
+  END IF;
 END
 $deployment_job_test$;
 
