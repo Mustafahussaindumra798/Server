@@ -136,7 +136,7 @@ export function createRouteStreamManager({
     }
     if (message.type === "route_close") {
       if (typeof message.reason !== "undefined" && (typeof message.reason !== "string" || message.reason.length > 64)) return false;
-      finish(stream, null, false);
+      finish(stream, stream.opened ? null : new Error("Node closed the route before it opened."), false);
       return true;
     }
     if (message.type === "route_error") {
