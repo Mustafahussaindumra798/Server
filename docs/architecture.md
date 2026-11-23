@@ -24,5 +24,8 @@ A placement decision must account for CPU, memory, disk, architecture, OS/runtim
 - Ubuntu in a proot environment on Android is not a full Linux kernel or virtual machine. Kernel-dependent container runtimes and systemd assumptions may not work.
 - A phone cluster is suitable for experiments and low-risk services, not an SLA-backed production fleet without careful operational controls.
 
-## Important boundary
-This architecture is a design target, not an implemented feature set. The current repository is a frontend simulation only.
+## Ingress direction
+The accepted multi-node ingress design is documented in [Ingress architecture decision](ingress-architecture.md). Public traffic terminates at a gateway and reaches qualified Linux nodes through node-initiated authenticated reverse tunnels. Container ports remain loopback-only. This is an architecture decision, not an implemented ingress feature.
+
+## Current implementation boundary
+The repository has a functioning control-plane API/dashboard, PostgreSQL-backed tenant and node management, typed workload orchestration, a rootless Podman runtime adapter, health-gated deployment lifecycle, rollback orchestration and node-local endpoint registration. Public ingress, domain verification, TLS automation, persistent volumes and physical Linux-node qualification remain incomplete. Android/Termux devices are diagnostics/scheduler test nodes, not production workload hosts.
