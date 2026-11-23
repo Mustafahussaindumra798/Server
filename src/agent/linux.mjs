@@ -24,7 +24,8 @@ const execFileAsync = promisify(execFile);
 
 export async function detectPodmanRuntime({
   runCommand = execFileAsync,
-  readCgroupControllers = () => readFile("/sys/fs/cgroup/cgroup.controllers", "utf8")
+  readCgroupControllers = () => readFile("/sys/fs/cgroup/cgroup.controllers", "utf8"),
+  env = process.env
 } = {}) {
   let info;
   try {
@@ -43,7 +44,7 @@ export async function detectPodmanRuntime({
   const cgroupVersion = String(info?.host?.cgroupVersion || info?.host?.cgroupManagerVersion || "").toLowerCase();
   const version = String(info?.version?.Version || info?.version?.version || "").slice(0, 40) || null;
   const graphDriver = String(info?.store?.graphDriverName || "").toLowerCase();
-  const storageQuotaConfigured = process.env.CLOUDEXIFY_STORAGE_QUOTA_READY === "true";
+  const storageQuotaConfigured = env.CLOUDEXIFY_STORAGE_QUOTA_READY === "true";
   const storageQuotaReady = graphDriver === "overlay" && storageQuotaConfigured;
   let cgroupV2Available = false;
   try {
