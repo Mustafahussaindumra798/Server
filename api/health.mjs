@@ -65,7 +65,7 @@ export function createHealthHandler(databasePool) {
           EXISTS (
             SELECT 1 FROM information_schema.columns
             WHERE table_schema = 'public' AND table_name = 'deployments'
-              AND column_name = 'rollback_of_deployment_id'
+              AND column_name = 'rollback_attempt_for_deployment_id'
           ) AS deployment_automatic_rollback,
           COALESCE(position('deployment.rollback.queued' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_rollback_reconciliation,
           COALESCE(position('workload_healthy' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_health_reconciliation,
