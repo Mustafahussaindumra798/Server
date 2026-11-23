@@ -481,11 +481,13 @@ async function init() {
     const nodes = state.data.nodes.filter((node) => ["online", "degraded"].includes(node.status));
     showResourceDialog({
       title: "Request deployment",
-      description: "Queue a deployment job on a qualified Linux node. Full customer workload execution is not enabled until application health checks and public ingress are complete. Provide an immutable OCI image digest.",
+      description: "Queue a deployment job on a qualified Linux node. The node waits for the application health endpoint before reporting the revision healthy. Public ingress is still pending.",
       fields: [
         { name: "application_id", label: "Application", type: "select", required: true, options: apps.map((app, index) => ({ value: app.id, label: app.name, selected: index === 0 })) },
         { name: "image_digest", label: "Immutable OCI image digest (required for running)", required: false, maxLength: 300, placeholder: "registry.example.com/team/app@sha256:<64 hex>" },
         { name: "container_port", label: "Container TCP port (required for running)", type: "number", required: false, maxLength: 5, placeholder: "8080" },
+        { name: "health_check_path", label: "HTTP health-check path", required: false, maxLength: 256, placeholder: "/healthz" },
+        { name: "health_check_timeout_seconds", label: "Health-check timeout (5–120 seconds)", type: "number", required: false, maxLength: 3, placeholder: "30" },
         { name: "target_node_id", label: "Target node (optional)", type: "select", required: false, options: [{ value: "", label: "Automatic capacity-based placement" }, ...nodes.map((node) => ({ value: node.id, label: node.name + " · " + node.platform }))] },
         { name: "desired_state", label: "Desired state", type: "select", required: true, options: [{ value: "running", label: "Running", selected: true }, { value: "stopped", label: "Stopped" }] }
       ],
@@ -496,6 +498,8 @@ async function init() {
         if (desiredState === "running") {
           body.image_digest = String(form.get("image_digest") || "").trim();
           body.container_port = Number(form.get("container_port"));
+          body.health_check_path = String(form.get("health_check_path") || "/").trim();
+          body.health_check_timeout_seconds = Number(form.get("health_check_timeout_seconds") || 30);
         }
         const result = await api("/api/v1/tenants/" + encodeURIComponent(state.tenantId) + "/deployments", { method: "POST", body: JSON.stringify(body) });
         dashboardMessage(result.runtime_job_queued ? "Deployment job queued on node " + result.deployment.target_node_id + ". Process startup and application health will be reported separately." : "Stopped deployment revision recorded.");
