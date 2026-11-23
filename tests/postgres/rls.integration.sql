@@ -215,6 +215,88 @@ BEGIN
     RAISE EXCEPTION 'Stale job lease was able to acknowledge completed work';
   END IF;
 
+  -- An expired active lease must close its attempt and become retryable.
+  INSERT INTO jobs (tenant_id, node_id, type, idempotency_key)
+  VALUES ('20000000-0000-4000-8000-000000000001',
+          '30000000-0000-4000-8000-000000000001', 'probe', 'lease-expiry-retry-' || gen_random_uuid())
+  RETURNING id INTO claimed.job_id;
+  SELECT * INTO claimed
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF claimed.job_id IS NULL THEN
+    RAISE EXCEPTION 'Newly queued lease-expiry test job was not claimed';
+  END IF;
+  UPDATE jobs SET lease_expires_at = clock_timestamp() - interval '1 second'
+  WHERE id = claimed.job_id;
+  SELECT count(*) INTO stale_total
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF stale_total <> 0
+     OR (SELECT status FROM jobs WHERE id=claimed.job_id) <> 'queued'
+     OR (SELECT result_code FROM job_attempts WHERE id=claimed.attempt_id) <> 'lease_expired'
+     OR (SELECT finished_at FROM job_attempts WHERE id=claimed.attempt_id) IS NULL THEN
+    RAISE EXCEPTION 'Expired lease did not close its attempt and schedule a retry';
+  END IF;
+
+  UPDATE jobs SET available_at = clock_timestamp() WHERE id = claimed.job_id;
+  SELECT * INTO retried
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF retried.job_id <> claimed.job_id OR retried.attempt_number <> 2
+     OR retried.attempt_id = claimed.attempt_id THEN
+    RAISE EXCEPTION 'Expired lease retry did not create a fresh attempt';
+  END IF;
+  SELECT count(*) INTO stale_total
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, claimed.attempt_id, claimed.lease_token,
+    'succeeded', 'stale', 'Old lease must not complete the retried job'
+  );
+  IF stale_total <> 0 THEN
+    RAISE EXCEPTION 'Expired lease token acknowledged a newer attempt';
+  END IF;
+  SELECT * INTO acknowledgement
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, retried.attempt_id, retried.lease_token,
+    'succeeded', 'ok', 'Retry completed'
+  );
+  IF acknowledgement.status <> 'succeeded' THEN
+    RAISE EXCEPTION 'Retried job did not complete successfully';
+  END IF;
+  SELECT count(*) INTO stale_total
+  FROM app_private.acknowledge_node_job(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64),
+    retried.job_id, retried.attempt_id, retried.lease_token,
+    'succeeded', 'duplicate', 'Duplicate terminal acknowledgement'
+  );
+  IF stale_total <> 0 THEN
+    RAISE EXCEPTION 'Duplicate terminal acknowledgement was accepted';
+  END IF;
+
+  -- Expiry on the final permitted attempt must be terminal, not re-queued.
+  INSERT INTO jobs (tenant_id, node_id, type, idempotency_key, max_attempts)
+  VALUES ('20000000-0000-4000-8000-000000000001',
+          '30000000-0000-4000-8000-000000000001', 'probe',
+          'lease-expiry-terminal-' || gen_random_uuid(), 1)
+  RETURNING id INTO claimed.job_id;
+  SELECT * INTO claimed
+  FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  UPDATE jobs SET lease_expires_at = clock_timestamp() - interval '1 second'
+  WHERE id = claimed.job_id;
+  PERFORM * FROM app_private.claim_node_jobs(
+    '30000000-0000-4000-8000-000000000001', repeat('a',64), 1, 60
+  );
+  IF (SELECT status FROM jobs WHERE id=claimed.job_id) <> 'failed'
+     OR (SELECT result_code FROM job_attempts WHERE id=claimed.attempt_id) <> 'lease_expired' THEN
+    RAISE EXCEPTION 'Final expired lease was not marked terminally failed';
+  END IF;
+
   SELECT count(*) INTO stale_total
   FROM app_private.claim_node_jobs(
     '30000000-0000-4000-8000-000000000002', repeat('a',64), 1, 60
