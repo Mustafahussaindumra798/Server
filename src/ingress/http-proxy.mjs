@@ -102,7 +102,7 @@ export function createIngressRequestHandler({
     if (!hostname) { response.writeHead(400, { connection: "close" }); response.end("Invalid Host header"); return; }
     if (!certificate.checkHost(hostname)) { response.writeHead(421, { connection: "close" }); response.end("Misdirected Request"); return; }
     if (typeof request.url !== "string" || request.url.length > 8192 ||
-        !request.url.startsWith("/") || request.url.startsWith("//") || /[\\r\\n]/.test(request.url)) {
+        !request.url.startsWith("/") || request.url.startsWith("//") || /[\r\n]/.test(request.url)) {
       response.writeHead(400, { connection: "close" }); response.end("Invalid request target"); return;
     }
     if (request.method === "CONNECT" || request.method === "TRACE" || request.headers.upgrade) {
