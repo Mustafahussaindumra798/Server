@@ -167,6 +167,7 @@
 - [x] Implement normalized hostname lookup against active tenant-scoped routes, HTTPS TLS termination with operator-provisioned certificate, HTTP request/response proxying over multiplexed mTLS streams, hop-by-hop header filtering, bounded request bodies/timeouts and stream-level pause/resume
 - [x] Revalidate active ingress routes periodically during requests; terminate existing traffic fail-closed when route eligibility, route version, deployment target/port or authenticated node session changes
 - [x] Increment active route versions when a deployment's loopback port changes; test old-grant invalidation without route-state transitions
+- [x] Verify active ingress streams fail closed when periodic route revalidation loses database access
 - [x] Advance active route versions when a deployment's loopback runtime port changes (migration 019); verify target-node changes withdraw the old route through lifecycle reconciliation
 - [x] Add route activation state and database lifecycle gate: only eligible verified-domain/healthy-deployment routes on nodes advertising ingress tunnel + loopback-forwarder readiness become active; node/deployment/domain ineligibility suspends them (migration 018)
 - [x] Require a live authenticated mTLS node session at request time and issue a short-lived signed loopback grant for the exact route/node
