@@ -19,6 +19,16 @@ BEGIN
     RAISE EXCEPTION 'Node ID is required' USING ERRCODE = '22023';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM public.nodes AS node
+     WHERE node.id = p_node_id
+       AND node.approved_at IS NOT NULL
+       AND node.status IN ('online','degraded')
+       AND node.last_seen_at > clock_timestamp() - make_interval(secs => node.heartbeat_interval_seconds * 3)
+  ) THEN
+    RETURN 0;
+  END IF;
+
   FOR v_deployment IN
     SELECT deployment.*
       FROM public.deployments AS deployment
