@@ -180,12 +180,14 @@ export function createRouteStreamManager({
     }
     const node = nodes.get(nodeId);
     if (!node || node.socket.destroyed) return { drained: true, activeStreams: 0 };
+    if (node.draining && node.drainPromise) return node.drainPromise;
     node.draining = true;
     if (node.streamIds.size === 0) return { drained: true, activeStreams: 0 };
 
-    return new Promise((resolve) => {
+    const drainPromise = new Promise((resolve) => {
       let settled = false;
       let timer;
+      let onStreamsDrained;
       const finishDrain = (drained) => {
         if (settled) return;
         settled = true;
@@ -197,12 +199,14 @@ export function createRouteStreamManager({
         }
         resolve({ drained, activeStreams: drained ? 0 : activeStreams });
       };
-      const onStreamsDrained = (drained = true) => finishDrain(drained);
+      onStreamsDrained = (drained = true) => finishDrain(drained);
       node.drainResolve = onStreamsDrained;
       timer = setTimeoutImpl(() => finishDrain(false), timeoutMs);
       timer?.unref?.();
       if (node.streamIds.size === 0) onStreamsDrained();
     });
+    node.drainPromise = drainPromise;
+    return drainPromise;
   }
 
   function closeAll() {
