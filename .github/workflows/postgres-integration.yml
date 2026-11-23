@@ -77,6 +77,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/017_node_tunnel_certificates.sql
       - name: Apply active ingress route gate migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/018_activate_ingress_routes.sql
+      - name: Apply ingress route endpoint version migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/019_ingress_route_endpoint_version.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify runtime capability heartbeat
