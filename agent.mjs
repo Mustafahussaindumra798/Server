@@ -141,6 +141,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
   let nextHeartbeat = 0;
   let nextPoll = 0;
   let lastCpuMetrics = null;
+  let runtimeReconciled = false;
   const workloadRuntime = new PodmanWorkloadRuntime({ runtimeProbe: identity.platform === "linux" ? runtimeProbe : async () => ({ ready: false, rootless: false, cgroup_version: null, cgroup_v2_available: false }) });
   onLog("info", "Linux/Android node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
 
@@ -156,6 +157,20 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
         });
         onLog("info", "Heartbeat accepted", { node_id: state.node_id, status: heartbeat.node?.status || "unknown", metric_count: Object.keys(resources).length });
         nextHeartbeat = Date.now() + heartbeatSeconds * 1000;
+        if (!runtimeReconciled) {
+          try {
+            const reconciliation = await requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/runtime/reconcile", {
+              method: "POST",
+              credential: state.credential,
+              body: {}
+            });
+            runtimeReconciled = true;
+            onLog("info", "Runtime reconciliation accepted", { node_id: state.node_id, reconciled_jobs: reconciliation.reconciled_jobs || 0 });
+          } catch (error) {
+            if (error instanceof AgentAuthenticationError) throw error;
+            onLog("warn", "Runtime reconciliation failed; agent will retry", { node_id: state.node_id, error: error.message });
+          }
+        }
       }
     } catch (error) {
       if (error instanceof AgentAuthenticationError) throw error;
