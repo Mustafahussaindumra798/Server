@@ -22,7 +22,7 @@ export function createRouteGrantSigner(privateKeyPem) {
         !UUID.test(route.route_id) || !UUID.test(route.tenant_id) ||
         !UUID.test(route.deployment_id) || !UUID.test(route.node_id) ||
         typeof route.hostname !== "string" || route.hostname.length > 253 ||
-        !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(route.hostname) ||
+        !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(route.hostname) ||
         !Number.isInteger(route.local_port) || route.local_port < 1 || route.local_port > 65535 ||
         !Number.isSafeInteger(Number(route.route_version)) || Number(route.route_version) < 1) {
       throw new Error("Route authorization record is incomplete or invalid.");
