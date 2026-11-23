@@ -107,6 +107,8 @@ export function createHealthHandler(databasePool) {
           to_regclass('public.domain_claims') IS NOT NULL AS domain_claims_table,
           to_regclass('public.domain_verification_challenges') IS NOT NULL AS domain_challenges_table,
           to_regclass('public.deployment_domain_routes') IS NOT NULL AS deployment_domain_routes_table,
+          to_regclass('public.node_tunnel_certificates') IS NOT NULL AS node_tunnel_certificates_table,
+          to_regprocedure('app_private.authorize_node_tunnel_certificate(text,uuid)') IS NOT NULL AS node_tunnel_certificate_authorizer,
           to_regprocedure('app_private.register_deployment_domain_route(uuid,uuid)') IS NOT NULL AS deployment_domain_route_register_function,
           to_regprocedure('app_private.reconcile_deployment_domain_route(uuid)') IS NOT NULL AS deployment_domain_route_reconcile_function,
           to_regprocedure('app_private.verify_domain_claim(uuid,text)') IS NOT NULL AS domain_verify_function,
@@ -126,8 +128,9 @@ export function createHealthHandler(databasePool) {
       const deploymentEndpointReady = schema.deployment_runtime_local_port && schema.job_attempt_result_json && schema.deployment_endpoint_registration;
       const domainClaimsReady = schema.domain_claims_table && schema.domain_challenges_table && schema.domain_verify_function && schema.domain_expiry_function;
       const domainRouteRegistryReady = schema.deployment_domain_routes_table && schema.deployment_domain_route_register_function && schema.deployment_domain_route_reconcile_function;
+      const nodeTunnelAuthorizationReady = schema.node_tunnel_certificates_table && schema.node_tunnel_certificate_authorizer;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady || !domainClaimsReady || !domainRouteRegistryReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady || !domainClaimsReady || !domainRouteRegistryReady || !nodeTunnelAuthorizationReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -144,7 +147,8 @@ export function createHealthHandler(databasePool) {
             ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : []),
             ...(!deploymentEndpointReady ? ["014_runtime_endpoint_registration"] : []),
             ...(!domainClaimsReady ? ["015_domain_claims"] : []),
-            ...(!domainRouteRegistryReady ? ["016_deployment_domain_route_registry"] : [])
+            ...(!domainRouteRegistryReady ? ["016_deployment_domain_route_registry"] : []),
+            ...(!nodeTunnelAuthorizationReady ? ["017_node_tunnel_certificates"] : [])
           ]
         }));
         return;
@@ -165,7 +169,8 @@ export function createHealthHandler(databasePool) {
         automatic_deployment_rollback: "ready",
         runtime_endpoint_registration: "ready",
         domain_claims: "ready",
-        deployment_domain_route_registry: "pending_transport_only"
+        deployment_domain_route_registry: "pending_transport_only",
+        node_tunnel_authorization: "mTLS_certificate_registry_ready_forwarding_disabled"
       }));
     } catch {
       response.statusCode = 503;
