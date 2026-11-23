@@ -73,8 +73,8 @@ function fakePool(role = "viewer", { applicationDeployments = [] } = {}) {
   return { calls, connect: async () => client };
 }
 
-async function startApi(role = "viewer") {
-  const pool = fakePool(role);
+async function startApi(role = "viewer", options = {}) {
+  const pool = fakePool(role, options);
   const handler = createApiHandler({
     pool,
     env: { OIDC_ISSUER: issuer, OIDC_AUDIENCE: audience, OIDC_JWKS_URI: "https://identity.example.test/jwks" },
