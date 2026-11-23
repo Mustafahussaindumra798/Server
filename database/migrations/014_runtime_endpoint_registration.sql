@@ -120,6 +120,32 @@ $ack_job$;
 
 REVOKE ALL ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text,jsonb) FROM PUBLIC;
 
+-- Keep the original eight-argument SQL contract working for existing
+-- administrative/integration callers. Node agents use the metadata-aware
+-- nine-argument overload.
+CREATE FUNCTION app_private.acknowledge_node_job(
+  p_node_id uuid,
+  p_credential_hash text,
+  p_job_id uuid,
+  p_attempt_id uuid,
+  p_lease_token uuid,
+  p_status text,
+  p_result_code text,
+  p_result_summary text
+)
+RETURNS TABLE(job_id uuid, status text, attempt_id uuid, retry_at timestamptz)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, app_private
+AS $ack_legacy$
+  SELECT * FROM app_private.acknowledge_node_job(
+    p_node_id, p_credential_hash, p_job_id, p_attempt_id, p_lease_token,
+    p_status, p_result_code, p_result_summary, '{}'::jsonb
+  );
+$ack_legacy$;
+
+REVOKE ALL ON FUNCTION app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION app_private.record_deployment_runtime_endpoint()
 RETURNS trigger
 LANGUAGE plpgsql
