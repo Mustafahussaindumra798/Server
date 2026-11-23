@@ -53,7 +53,7 @@ export function createRouteStreamManager({
     const node = nodes.get(stream.nodeId);
     if (node) {
       node.streamIds.delete(stream.id);
-      if (node.draining && node.streamIds.size === 0) node.drainResolve?.();
+      if (node.draining && node.streamIds.size === 0) node.drainResolve?.(true);
     }
     clearTimeout(stream.timer);
     for (const listener of stream.drainCallbacks) stream.socket.off?.("drain", listener);
@@ -85,6 +85,7 @@ export function createRouteStreamManager({
       const stream = streams.get(id);
       if (stream) finish(stream, reason, false);
     }
+    node.drainResolve?.(false);
   }
 
   function openStream({ nodeId, grant, onData = onStreamData, onClose = onStreamClose }) {
@@ -195,7 +196,7 @@ export function createRouteStreamManager({
         }
         resolve({ drained, activeStreams: drained ? 0 : activeStreams });
       };
-      const onStreamsDrained = () => finishDrain(true);
+      const onStreamsDrained = (drained = true) => finishDrain(drained);
       node.drainResolve = onStreamsDrained;
       timer = setTimeoutImpl(() => finishDrain(false), timeoutMs);
       timer?.unref?.();
