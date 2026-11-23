@@ -53,7 +53,7 @@ function fakePool(role = "viewer", { applicationDeployments = [] } = {}) {
       if (query.startsWith("SELECT id, tenant_id, name, desired_state")) return { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT COALESCE(MAX(revision)")) return { rows: [{ next_revision: 1 }], rowCount: 1 };
       if (query.startsWith("INSERT INTO deployments")) {
-        return { rows: [{ id: "50000000-0000-4000-8000-000000000001", tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: params[3], desired_state: params[4], status: params[5], image_digest: params[8], container_port: params[9], resource_requests: JSON.parse(params[6]), created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
+        return { rows: [{ id: "50000000-0000-4000-8000-000000000001", tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: params[3], desired_state: params[4], status: params[5], image_digest: params[8], container_port: params[9], health_check_path: params[10], health_check_timeout_seconds: params[11], resource_requests: JSON.parse(params[6]), created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
       }
       if (query.startsWith("INSERT INTO applications")) {
         return { rows: [{ id: appId, tenant_id: tenantId, name: params[1], desired_state: "stopped", created_by: userId, created_at: new Date().toISOString() }], rowCount: 1 };
@@ -512,12 +512,16 @@ test("deployment request queues an immutable-image workload job in the same tran
   assert.equal(payload.job.status, "queued");
   assert.equal(payload.deployment.image_digest, image);
   assert.equal(payload.deployment.container_port, 8080);
+  assert.equal(payload.deployment.health_check_path, "/");
+  assert.equal(payload.deployment.health_check_timeout_seconds, 30);
   const jobInsert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id"));
   assert.ok(jobInsert);
   assert.equal(jobInsert.params[2], payload.deployment.id);
   const jobPayload = JSON.parse(jobInsert.params[3]);
   assert.equal(jobPayload.image, image);
   assert.equal(jobPayload.container_port, 8080);
+  assert.equal(jobPayload.health_check_path, "/");
+  assert.equal(jobPayload.health_check_timeout_seconds, 30);
   assert.equal(jobPayload.resources.cpu_millicores, 250);
 });
 
@@ -525,7 +529,9 @@ test("running deployment rejects mutable images and invalid ports before writing
   const api = await startApi("operator"); t.after(api.close);
   for (const body of [
     { application_id: appId, desired_state: "running", image_digest: "nginx:latest", container_port: 8080 },
-    { application_id: appId, desired_state: "running", image_digest: "registry.example.com/demo@sha256:" + "c".repeat(64), container_port: 70000 }
+    { application_id: appId, desired_state: "running", image_digest: "registry.example.com/demo@sha256:" + "c".repeat(64), container_port: 70000 },
+    { application_id: appId, desired_state: "running", image_digest: "registry.example.com/demo@sha256:" + "c".repeat(64), container_port: 8080, health_check_path: "//attacker.example" },
+    { application_id: appId, desired_state: "running", image_digest: "registry.example.com/demo@sha256:" + "c".repeat(64), container_port: 8080, health_check_timeout_seconds: 121 }
   ]) {
     const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
       method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" }, body: JSON.stringify(body)
