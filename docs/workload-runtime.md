@@ -4,6 +4,12 @@
 
 The first runtime adapter uses rootless Podman on qualified Linux nodes only. Android/Termux nodes are not eligible. The adapter is deliberately not advertised as a generally available deployment runtime yet.
 
+## Deployment request and control-plane orchestration
+
+The authenticated deployment API now requires an immutable OCI digest and a TCP container port for running revisions. It inserts the deployment revision and its typed `deploy` job in the same tenant-scoped database transaction. Generic user-created jobs remain diagnostic-only. Migration 009 adds artifact metadata and database triggers that move deployment revisions to `deploying` when the node accepts/starts the job, to `failed` after terminal failure/rejection, and cancel queued deploy jobs when a revision is cancelled.
+
+A successful container-start acknowledgement deliberately leaves the revision in `deploying`: the application has not passed a health check and must not be shown as `healthy`.
+
 ## Deployment payload
 
 The adapter accepts only these fields:
