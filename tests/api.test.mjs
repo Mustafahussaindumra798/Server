@@ -20,7 +20,7 @@ function makeToken() {
   return input + "." + sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url");
 }
 
-function fakePool(role = "viewer") {
+function fakePool(role = "viewer", { applicationDeployments = [] } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -42,6 +42,8 @@ function fakePool(role = "viewer") {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
       if (query.startsWith("SELECT id, desired_state FROM applications WHERE id =")) return { rows: [{ id: params[0], desired_state: "stopped" }], rowCount: 1 };
+      if (query.startsWith("SELECT id, status FROM deployments WHERE application_id =")) return { rows: applicationDeployments, rowCount: applicationDeployments.length };
+      if (query.startsWith("UPDATE deployments SET desired_state = 'stopped', status = 'cancelled'")) return { rows: (params[2] || []).map((id) => ({ id })), rowCount: (params[2] || []).length };
       if (query.startsWith("UPDATE applications SET desired_state")) return { rows: [{ id: params[0], tenant_id: tenantId, name: "Test app", desired_state: params[2], resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, desired_state, status FROM deployments WHERE id =")) return { rows: [{ id: params[0], desired_state: "running", status: "scheduled" }], rowCount: 1 };
       if (query.startsWith("UPDATE deployments SET desired_state = 'stopped'")) return { rows: [{ id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "stopped", status: "cancelled", resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
@@ -121,6 +123,37 @@ test("owner can change application desired state and the change is audited", asy
   assert.equal(payload.runtime_enabled, false);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE applications SET desired_state")), true);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "application.state.changed"), true);
+});
+
+test("stopping an application cancels its queued deployment revisions atomically", async (t) => {
+  const pendingId = "50000000-0000-4000-8000-000000000002";
+  const api = await startApi("owner", { applicationDeployments: [{ id: pendingId, status: "scheduled" }] });
+  t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/applications/" + appId + "/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "stopped" })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.application.desired_state, "stopped");
+  assert.equal(payload.cancelled_deployments, 1);
+  const cancel = api.pool.calls.find((call) => call.sql.startsWith("UPDATE deployments SET desired_state = 'stopped', status = 'cancelled'"));
+  assert.deepEqual(cancel.params, [tenantId, appId, [pendingId]]);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO audit_events") && call.params[2] === "application.deployments.cancelled"), true);
+});
+
+test("stopping an application with an active deployment fails without changing state", async (t) => {
+  const api = await startApi("owner", { applicationDeployments: [{ id: "50000000-0000-4000-8000-000000000003", status: "healthy" }] });
+  t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/applications/" + appId + "/state", {
+    method: "POST",
+    headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "stopped" })
+  });
+  assert.equal(response.status, 409);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE applications SET desired_state")), false);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("UPDATE deployments SET desired_state = 'stopped', status = 'cancelled'")), false);
 });
 
 test("viewer cannot change application desired state", async (t) => {
