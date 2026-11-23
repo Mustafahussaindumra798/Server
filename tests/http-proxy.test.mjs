@@ -160,6 +160,7 @@ test("active ingress route is terminated when periodic revalidation detects revo
     routeStreams,
     signRouteGrant: () => ({ token: "signed-route-grant" }),
     certificate: { checkHost: () => true },
+    revalidateIntervalMs: 1000,
     setIntervalImpl(callback, delay) {
       assert.equal(delay, 1000);
       intervalCallback = callback;
