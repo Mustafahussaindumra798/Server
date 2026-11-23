@@ -30,7 +30,7 @@ async function main() {
   const host = listenAddress(process.env.CLOUDEXIFY_TUNNEL_LISTEN_HOST || "127.0.0.1");
   const port = Number(process.env.CLOUDEXIFY_TUNNEL_LISTEN_PORT || 9443);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("CLOUDEXIFY_TUNNEL_LISTEN_PORT must be between 1 and 65535.");
-  const pool = createDatabasePool(required("DATABASE_URL"), { max: 5 });
+  const pool = createDatabasePool(required("DATABASE_URL"), { max: 10, queryTimeoutMillis: 5000 });
   const server = createNodeTunnelServer({
     tlsOptions: {
       key: readFileSync(required("CLOUDEXIFY_TUNNEL_SERVER_KEY")),
