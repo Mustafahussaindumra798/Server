@@ -42,7 +42,7 @@ function fakePool(role = "viewer") {
         return { rows: [{ role, tenant_status: "active" }], rowCount: 1 };
       }
       if (query.startsWith("SELECT id, resource_requests_json FROM applications")) return { rows: [{ id: appId, resource_requests_json: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 } }], rowCount: 1 };
-      if (query.includes("memory_total_bytes") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", cpu_cores: 4, resources: { cpu_percent: 10, memory_total_bytes: 8589934592, memory_used_bytes: 1073741824, disk_available_bytes: 100000000000 } }], rowCount: 1 };
+      if (query.includes("memory_total_bytes") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", cpu_cores: 4, resources: { cpu_percent: 10, memory_total_bytes: 8589934592, memory_used_bytes: 1073741824, memory_available_bytes: 7516192768, disk_available_bytes: 100000000000 } }], rowCount: 1 };
       if (query.startsWith("SELECT id, tenant_id, name, desired_state")) return { rows: [], rowCount: 0 };
       if (query.startsWith("SELECT COALESCE(MAX(revision)")) return { rows: [{ next_revision: 1 }], rowCount: 1 };
       if (query.startsWith("INSERT INTO deployments")) {
@@ -127,7 +127,7 @@ test("running deployment is rejected when no node has enough capacity", async (t
   api.pool.connect = async () => {
     const client = await originalConnect(); const query = client.query.bind(client);
     client.query = async (sql, params) => {
-      if (String(sql).includes("FOR UPDATE OF node SKIP LOCKED") && String(sql).includes("memory_total_bytes")) return { rows: [], rowCount: 0 };
+      if (String(sql).includes("FOR UPDATE OF node SKIP LOCKED") && String(sql).includes("memory_available_bytes")) return { rows: [], rowCount: 0 };
       return query(sql, params);
     };
     return client;
@@ -271,11 +271,11 @@ test("owner rejection revokes all active node credentials and audits the rejecti
 
 test("node heartbeat authenticates credentials and stores validated resource metrics", async (t) => {
   const api = await startApi("viewer"); t.after(api.close); const nodeId = "30000000-0000-4000-8000-000000000001";
-  const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify({ health_status: "healthy", agent_version: "0.1.0", resources: { cpu_cores: 8, cpu_percent: 21.5, memory_total_bytes: 4096, memory_used_bytes: 2048, uptime_seconds: 120 } }) });
+  const response = await fetch(api.origin + "/api/v1/nodes/" + nodeId + "/heartbeat", { method: "POST", headers: { authorization: "Bearer node-credential-test-012345678901234567890123", "content-type": "application/json" }, body: JSON.stringify({ health_status: "healthy", agent_version: "0.1.0", resources: { cpu_cores: 8, cpu_percent: 21.5, cpu_frequency_mhz: 1800, memory_total_bytes: 4096, memory_used_bytes: 2048, memory_available_bytes: 2048, disk_total_bytes: 10000, disk_used_bytes: 4000, disk_available_bytes: 6000, android_shared_storage_total_bytes: 20000, android_shared_storage_used_bytes: 5000, android_shared_storage_available_bytes: 15000, uptime_seconds: 120 } }) });
   assert.equal(response.status, 200); assert.equal((await response.json()).node.status, "online");
   const call = api.pool.calls.find((item) => item.sql.startsWith("SELECT * FROM app_private.accept_node_heartbeat"));
   assert.equal(call.params[0], nodeId); assert.equal(call.params[1], createHash("sha256").update("node-credential-test-012345678901234567890123").digest("hex"));
-  assert.deepEqual(JSON.parse(call.params[4]), { cpu_cores: 8, cpu_percent: 21.5, memory_total_bytes: 4096, memory_used_bytes: 2048, uptime_seconds: 120 });
+  assert.deepEqual(JSON.parse(call.params[4]), { cpu_cores: 8, cpu_percent: 21.5, cpu_frequency_mhz: 1800, memory_total_bytes: 4096, memory_used_bytes: 2048, memory_available_bytes: 2048, disk_total_bytes: 10000, disk_used_bytes: 4000, disk_available_bytes: 6000, android_shared_storage_total_bytes: 20000, android_shared_storage_used_bytes: 5000, android_shared_storage_available_bytes: 15000, uptime_seconds: 120 });
 });
 
 test("node heartbeat rejects missing, invalid, revoked or expired credentials", async (t) => {
