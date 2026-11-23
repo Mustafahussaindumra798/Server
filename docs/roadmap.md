@@ -124,6 +124,7 @@
 - [x] Advertise Cosign binary and trusted-key readiness in node heartbeats; deployment placement excludes nodes without both Podman and Cosign qualification
 - [ ] Securely provision and rotate the trusted Cosign public key on every eligible production node
 - [x] Implement rootless Podman workload adapter with immutable digest validation, rootless/cgroup-v2 gate, CPU/memory/PID limits, read-only rootfs, dropped capabilities, no-new-privileges and loopback-only port publication (CI runs #267–272 passed)
+- [x] Add focused workload-runtime tests for immutable image validation, signature-before-pull ordering, rootless container hardening, storage-quota fail-closed behavior and loopback-only health checks (CI verification pending)
 - [x] Agent dispatch for typed deploy/stop/restart jobs; rejects malformed payloads and never accepts arbitrary shell commands (CI runs #271–272 passed)
 - [x] Workload jobs are terminally rejected on unqualified nodes instead of retrying forever (CI run #277 passed)
 - [x] Connect authorized running deployment requests to immutable OCI image digest + TCP port validation and atomically queue a typed deploy job on the admitted node (migration 009)
