@@ -77,9 +77,9 @@ export function createRouteStreamManager({
     nodes.set(nodeId, { socket, streamIds: new Set(), draining: false, drainResolve: null, drainPromise: null, drainCancel: null });
   }
 
-  function detachNode(nodeId, reason = new Error("Node tunnel disconnected.")) {
+  function detachNode(nodeId, reason = new Error("Node tunnel disconnected."), expectedSocket = null) {
     const node = nodes.get(nodeId);
-    if (!node) return;
+    if (!node || (expectedSocket && node.socket !== expectedSocket)) return;
     nodes.delete(nodeId);
     for (const id of [...node.streamIds]) {
       node.streamIds.delete(id);
