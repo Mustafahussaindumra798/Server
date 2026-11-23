@@ -120,7 +120,9 @@
 - [x] Termux explicitly skips container runtime probing and remains ineligible for container workloads
 - [x] Runtime capability tests cover Podman missing/malformed, rootless, cgroup v1/v2 and Termux fail-closed behavior
 - [x] Refresh and persist runtime capabilities on every authenticated node heartbeat (migration 008; API, agent and health checks updated)
-- [ ] Implement signed artifact provenance and content verification (runtime currently requires immutable OCI SHA-256 digests but does not verify signatures)
+- [x] Require Cosign signature verification against a node-local trusted public key before any OCI image pull; unsigned/invalid signatures fail closed
+- [x] Advertise Cosign binary and trusted-key readiness in node heartbeats; deployment placement excludes nodes without both Podman and Cosign qualification
+- [ ] Securely provision and rotate the trusted Cosign public key on every eligible production node
 - [x] Implement rootless Podman workload adapter with immutable digest validation, rootless/cgroup-v2 gate, CPU/memory/PID limits, read-only rootfs, dropped capabilities, no-new-privileges and loopback-only port publication (CI runs #267–272 passed)
 - [x] Agent dispatch for typed deploy/stop/restart jobs; rejects malformed payloads and never accepts arbitrary shell commands (CI runs #271–272 passed)
 - [x] Workload jobs are terminally rejected on unqualified nodes instead of retrying forever (CI run #277 passed)
