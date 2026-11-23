@@ -170,6 +170,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
   const workloadRuntime = new PodmanWorkloadRuntime({ runtimeProbe: identity.platform === "linux" ? runtimeProbe : async () => ({ ready: false, rootless: false, cgroup_version: null, cgroup_v2_available: false }) });
   onLog("info", "Linux/Android node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
 
+  try {
   while (!signal?.aborted) {
     const now = Date.now();
     try {
@@ -245,9 +246,11 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
     try { await sleep(wait, undefined, { signal }); }
     catch (error) { if (!signal?.aborted) throw error; }
   }
-  if (tunnel) {
-    tunnel.close();
-    await tunnel.done;
+  } finally {
+    if (tunnel) {
+      tunnel.close();
+      await tunnel.done;
+    }
   }
   onLog("info", "Linux/Android node agent stopped", { node_id: state.node_id });
 }
