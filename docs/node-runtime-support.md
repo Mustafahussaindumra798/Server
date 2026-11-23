@@ -38,6 +38,8 @@ This matrix defines the intended support boundary. A platform listed as a target
 - No inbound public management port is required.
 
 ## Capability and workload rules
+The current agent enrollment probe detects rootless Podman only when the CLI responds within a strict timeout, reports rootless mode and cgroup v2, and the host exposes cgroup v2 controllers. This probe does not enable workload execution. A node must not be scheduled for customer workloads merely because Podman is installed.
+
 
 1. The agent reports platform, architecture, agent_version and only capabilities successfully probed on that device.
 2. Missing or unavailable metrics are represented as unavailable/null, never fabricated as zero.
