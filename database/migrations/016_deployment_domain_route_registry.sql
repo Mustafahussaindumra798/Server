@@ -108,6 +108,9 @@ BEGIN
    AND deployment.target_node_id = node.id
   WHERE tenant.id = v_route.tenant_id;
 
+  IF NOT FOUND THEN
+    v_reason := 'node_not_qualified';
+  END IF;
   v_eligible := v_reason IS NULL;
 
   -- Even an otherwise eligible route stays pending_transport. No migration
