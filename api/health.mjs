@@ -62,6 +62,7 @@ export function createHealthHandler(databasePool) {
             WHERE table_schema = 'public' AND table_name = 'deployments'
               AND column_name = 'health_checked_at'
           ) AS deployment_health_checked_at,
+          COALESCE(position('workload_healthy' in pg_get_functiondef(to_regprocedure('app_private.reconcile_deployment_job_status()'))) > 0, false) AS deployment_health_reconciliation,
           EXISTS (
             SELECT 1 FROM pg_trigger
             WHERE tgrelid = to_regclass('public.jobs')
@@ -86,7 +87,7 @@ export function createHealthHandler(databasePool) {
       const resourceAdmissionReady = schema.application_resource_requests && schema.deployment_resource_requests;
       const runtimeCapabilitiesReady = schema.capability_heartbeat_function;
       const deploymentOrchestrationReady = schema.deployment_image_digest && schema.deployment_container_port && schema.deployment_job_reconciliation && schema.deployment_job_cancellation;
-      const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at;
+      const deploymentHealthReady = schema.deployment_health_check_path && schema.deployment_health_check_timeout && schema.deployment_health_checked_at && schema.deployment_health_reconciliation;
 
       if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady) {
         response.statusCode = 503;
