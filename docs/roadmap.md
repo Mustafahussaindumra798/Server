@@ -92,10 +92,12 @@
 - [x] Tenant-wide idempotency serialization so retries retain the original node assignment
 - [ ] Load-aware capacity weights and fairness qualification under concurrent physical-node load
 - [ ] End-to-end multi-node job claim/ack test on both Android devices
-- [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/agent telemetry implemented; CI verification pending)
+- [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/agent telemetry implemented; PostgreSQL + application CI passed in run #217)
 - [x] Capacity reservations for active deployment revisions
 - [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
 - [x] Linux/Termux agent reports logical CPU count in heartbeats for CPU admission
+- [x] PostgreSQL integration verifies capacity reservations prevent sequential overcommit
+- [ ] Apply migration 007 to production DB and deploy the verified `main` build
 - [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
