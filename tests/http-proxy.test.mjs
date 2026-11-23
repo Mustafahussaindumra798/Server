@@ -258,3 +258,60 @@ test("active ingress route is terminated when periodic revalidation database acc
   assert.equal(queryCount, 2);
   assert.equal(await responsePromise, 503);
 });
+
+test("active ingress route is terminated when its authenticated node tunnel disappears", async (t) => {
+  let intervalCallback;
+  let connected = true;
+  const pool = {
+    async query() {
+      return { rows: [route] };
+    }
+  };
+  const routeStreams = {
+    hasNode: () => connected,
+    async openStream() {
+      return {
+        write: () => true,
+        onDrain: () => true,
+        pause: () => true,
+        resume: () => true,
+        close: () => {}
+      };
+    }
+  };
+  const handler = createIngressRequestHandler({
+    pool,
+    routeStreams,
+    signRouteGrant: () => ({ token: "signed-route-grant" }),
+    certificate: { checkHost: () => true },
+    revalidateIntervalMs: 1000,
+    setIntervalImpl(callback) {
+      intervalCallback = callback;
+      return { unref() {} };
+    },
+    clearIntervalImpl() {}
+  });
+  const server = http.createServer((req, res) => { void handler(req, res); });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const responsePromise = new Promise((resolve, reject) => {
+    const req = http.get({
+      host: "127.0.0.1",
+      port: server.address().port,
+      headers: { host: "app.example.test" }
+    }, (res) => {
+      res.resume();
+      res.once("end", () => resolve(res.statusCode));
+    });
+    req.once("error", reject);
+  });
+
+  for (let attempt = 0; attempt < 20 && !intervalCallback; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(typeof intervalCallback, "function");
+  connected = false;
+  await intervalCallback();
+  assert.equal(await responsePromise, 503);
+});
