@@ -134,6 +134,16 @@ async function acknowledge(fetchImpl, state, job, status, result = {}) {
   });
 }
 
+async function getNodeCapabilities(identity, env, tunnelConfigured) {
+  const capabilities = await getCapabilities(identity);
+  const forwardingReady = identity.platform === "linux" &&
+    tunnelConfigured &&
+    Boolean(env.CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY);
+  capabilities.ingress_tunnel = forwardingReady;
+  capabilities.loopback_forwarder = forwardingReady;
+  return capabilities;
+}
+
 export async function runAgent({ stateDirectory = defaultStateDirectory(), fetchImpl = fetch, signal, heartbeatSeconds = DEFAULT_HEARTBEAT_SECONDS, pollSeconds = DEFAULT_POLL_SECONDS, onLog = log, runtimeProbe = detectPodmanRuntime, env = process.env } = {}) {
   getLinuxIdentity();
   if (!Number.isInteger(heartbeatSeconds) || heartbeatSeconds < 3 || heartbeatSeconds > 300) throw new Error("Heartbeat interval must be between 3 and 300 seconds.");
@@ -180,7 +190,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
         const heartbeat = await requestJson(fetchImpl, state.control_plane_url + "/api/v1/nodes/" + state.node_id + "/heartbeat", {
           method: "POST",
           credential: state.credential,
-          body: { agent_version: AGENT_VERSION, health_status: "healthy", resources, capabilities: await getCapabilities(identity) }
+          body: { agent_version: AGENT_VERSION, health_status: "healthy", resources, capabilities: await getNodeCapabilities(identity, env, tunnelConfigured) }
         });
         onLog("info", "Heartbeat accepted", { node_id: state.node_id, status: heartbeat.node?.status || "unknown", metric_count: Object.keys(resources).length });
         nextHeartbeat = Date.now() + heartbeatSeconds * 1000;
