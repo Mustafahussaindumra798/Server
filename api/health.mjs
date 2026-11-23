@@ -103,7 +103,11 @@ export function createHealthHandler(databasePool) {
           to_regprocedure('app_private.accept_node_heartbeat(uuid,text,text,text,jsonb,jsonb)') IS NOT NULL AS capability_heartbeat_function,
           to_regprocedure('app_private.claim_node_jobs(uuid,text,integer,integer)') IS NOT NULL AS claim_jobs_function,
           to_regprocedure('app_private.acknowledge_node_job(uuid,text,uuid,uuid,uuid,text,text,text,jsonb)') IS NOT NULL AS acknowledge_job_function,
-          to_regprocedure('app_private.reconcile_node_deployments(uuid)') IS NOT NULL AS runtime_reconciliation_function
+          to_regprocedure('app_private.reconcile_node_deployments(uuid)') IS NOT NULL AS runtime_reconciliation_function,
+          to_regclass('public.domain_claims') IS NOT NULL AS domain_claims_table,
+          to_regclass('public.domain_verification_challenges') IS NOT NULL AS domain_challenges_table,
+          to_regprocedure('app_private.verify_domain_claim(uuid,text)') IS NOT NULL AS domain_verify_function,
+          to_regprocedure('app_private.revoke_expired_domain_challenges(uuid)') IS NOT NULL AS domain_expiry_function
       `);
       const schema = result.rows[0] || {};
       const baseReady = schema.applications_table && schema.deployments_table && schema.nodes_table &&
@@ -117,8 +121,9 @@ export function createHealthHandler(databasePool) {
       const runtimeReconciliationReady = schema.runtime_reconciliation_function;
       const deploymentRollbackReady = schema.deployment_automatic_rollback && schema.deployment_rollback_reconciliation;
       const deploymentEndpointReady = schema.deployment_runtime_local_port && schema.job_attempt_result_json && schema.deployment_endpoint_registration;
+      const domainClaimsReady = schema.domain_claims_table && schema.domain_challenges_table && schema.domain_verify_function && schema.domain_expiry_function;
 
-      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady) {
+      if (!baseReady || !resourceAdmissionReady || !runtimeCapabilitiesReady || !deploymentOrchestrationReady || !deploymentHealthReady || !deploymentLifecycleReady || !runtimeReconciliationReady || !deploymentRollbackReady || !deploymentEndpointReady || !domainClaimsReady) {
         response.statusCode = 503;
         response.end(JSON.stringify({
           status: "migration_required",
@@ -133,7 +138,8 @@ export function createHealthHandler(databasePool) {
             ...(!deploymentLifecycleReady ? ["011_deployment_lifecycle_jobs"] : []),
             ...(!runtimeReconciliationReady ? ["012_durable_runtime_reconciliation"] : []),
             ...(!deploymentRollbackReady ? ["013_automatic_deployment_rollback"] : []),
-            ...(!deploymentEndpointReady ? ["014_runtime_endpoint_registration"] : [])
+            ...(!deploymentEndpointReady ? ["014_runtime_endpoint_registration"] : []),
+            ...(!domainClaimsReady ? ["015_domain_claims"] : [])
           ]
         }));
         return;
@@ -152,7 +158,8 @@ export function createHealthHandler(databasePool) {
         deployment_lifecycle_jobs: "ready",
         durable_runtime_reconciliation: "ready",
         automatic_deployment_rollback: "ready",
-        runtime_endpoint_registration: "ready"
+        runtime_endpoint_registration: "ready",
+        domain_claims: "ready"
       }));
     } catch {
       response.statusCode = 503;
