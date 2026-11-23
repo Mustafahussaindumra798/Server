@@ -101,7 +101,7 @@ async function main() {
       certificate: parsedCertificate,
       logger: (event, fields) => process.stderr.write(JSON.stringify({
         timestamp: new Date().toISOString(), level: "warn", event, ...fields
-      }) + "\\n")
+      }) + "\n")
     });
     ingressServer = https.createServer({
       key: ingressKey,
@@ -129,7 +129,7 @@ async function main() {
       listen_port: ingressPort,
       protocol: "HTTPS/TLS1.3",
       hostname_routes: "active_routes_only"
-    }) + "\\n");
+    }) + "\n");
   }
 
   const shutdown = () => {
