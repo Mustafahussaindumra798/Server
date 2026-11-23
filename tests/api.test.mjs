@@ -20,7 +20,7 @@ function makeToken() {
   return input + "." + sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url");
 }
 
-function fakePool(role = "viewer", { applicationDeployments = [] } = {}) {
+function fakePool(role = "viewer", { applicationDeployments = [], deploymentRecord = null } = {}) {
   const calls = [];
   const client = {
     async query(sql, params = []) {
@@ -46,7 +46,9 @@ function fakePool(role = "viewer", { applicationDeployments = [] } = {}) {
       if (query.startsWith("SELECT id, status FROM deployments WHERE application_id =")) return { rows: applicationDeployments, rowCount: applicationDeployments.length };
       if (query.startsWith("UPDATE deployments SET desired_state = 'stopped', status = 'cancelled'") && query.includes("id = ANY($3::uuid[])")) return { rows: (params[2] || []).map((id) => ({ id })), rowCount: (params[2] || []).length };
       if (query.startsWith("UPDATE applications SET desired_state")) return { rows: [{ id: params[0], tenant_id: tenantId, name: "Test app", desired_state: params[2], resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
-      if (query.startsWith("SELECT id, desired_state, status FROM deployments WHERE id =")) return { rows: [{ id: params[0], desired_state: "running", status: "scheduled" }], rowCount: 1 };
+      if (query.startsWith("SELECT id, tenant_id, application_id, revision, target_node_id, desired_state, status, container_port, health_check_path")) return { rows: [deploymentRecord || { id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "running", status: "scheduled", container_port: 8080, health_check_path: "/", health_check_timeout_seconds: 30 }], rowCount: 1 };
+      if (query.startsWith("UPDATE deployments SET desired_state = 'stopped', status = 'stopping'")) return { rows: [{ ...(deploymentRecord || {}), id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "stopped", status: "stopping", health_check_path: "/healthz", health_check_timeout_seconds: 45 }], rowCount: 1 };
+      if (query.startsWith("UPDATE deployments SET desired_state = 'running', status = 'restarting'")) return { rows: [{ ...(deploymentRecord || {}), id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "running", status: "restarting", health_check_path: "/healthz", health_check_timeout_seconds: 45 }], rowCount: 1 };
       if (query.startsWith("UPDATE deployments SET desired_state = 'stopped'")) return { rows: [{ id: params[0], tenant_id: tenantId, application_id: appId, revision: 1, target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "stopped", status: "cancelled", resource_requests: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 }, created_by: userId, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }], rowCount: 1 };
       if (query.startsWith("SELECT id, resource_requests_json FROM applications")) return { rows: [{ id: appId, resource_requests_json: { cpu_millicores: 250, memory_bytes: 268435456, disk_bytes: 1073741824 } }], rowCount: 1 };
       if (query.includes("memory_total_bytes") && query.includes("FOR UPDATE OF node SKIP LOCKED")) return { rows: [{ id: "30000000-0000-4000-8000-000000000001", cpu_cores: 4, resources: { cpu_percent: 10, memory_total_bytes: 8589934592, memory_used_bytes: 1073741824, memory_available_bytes: 7516192768, disk_available_bytes: 100000000000 } }], rowCount: 1 };
@@ -539,6 +541,61 @@ test("running deployment rejects mutable images and invalid ports before writing
     assert.equal(response.status, 400);
   }
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO deployments")), false);
+  assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id")), false);
+});
+
+test("operator can queue a stop job for an active deployment revision", async (t) => {
+  const deploymentId = "50000000-0000-4000-8000-000000000001";
+  const api = await startApi("operator", { deploymentRecord: {
+    id: deploymentId, tenant_id: tenantId, application_id: appId, revision: 1,
+    target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "running",
+    status: "healthy", container_port: 8080, health_check_path: "/healthz", health_check_timeout_seconds: 45
+  } });
+  t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments/" + deploymentId + "/state", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "stopped" })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.deployment.status, "stopping");
+  assert.equal(payload.job.status, "queued");
+  const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id"));
+  assert.ok(insert);
+  assert.equal(insert.params[3], deploymentId);
+  assert.deepEqual(JSON.parse(insert.params[4]), { deployment_id: deploymentId });
+});
+
+test("operator can restart a stopped deployment with its stored HTTP health policy", async (t) => {
+  const deploymentId = "50000000-0000-4000-8000-000000000001";
+  const api = await startApi("operator", { deploymentRecord: {
+    id: deploymentId, tenant_id: tenantId, application_id: appId, revision: 1,
+    target_node_id: "30000000-0000-4000-8000-000000000001", desired_state: "stopped",
+    status: "stopped", container_port: 8080, health_check_path: "/healthz", health_check_timeout_seconds: 45
+  } });
+  t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments/" + deploymentId + "/state", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "running" })
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.deployment.status, "restarting");
+  assert.equal(payload.job.status, "queued");
+  const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id"));
+  assert.deepEqual(JSON.parse(insert.params[3]), {
+    deployment_id: deploymentId, container_port: 8080,
+    health_check_path: "/healthz", health_check_timeout_seconds: 45
+  });
+});
+
+test("viewer cannot queue deployment stop or restart jobs", async (t) => {
+  const api = await startApi("viewer"); t.after(api.close);
+  const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments/50000000-0000-4000-8000-000000000001/state", {
+    method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
+    body: JSON.stringify({ desired_state: "stopped" })
+  });
+  assert.equal(response.status, 403);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO jobs") && call.sql.includes("deployment_id")), false);
 });
 
