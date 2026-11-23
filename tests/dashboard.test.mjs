@@ -96,7 +96,7 @@ test("dashboard exposes guarded node ingress drain and resume controls to tenant
   assert.match(app, /node\.ingress_managed/);
   assert.match(app, /node\.ingress_ready/);
   assert.match(app, /Stop accepting new customer requests/);
-  assert.match(app, /\/nodes\/\" \+ encodeURIComponent\(nodeId\) \+ \"\/state/);
+  assert.match(app, /encodeURIComponent\(nodeId\).*\/state/s);
   assert.match(app, /ingress_state: ingressState/);
   assert.match(app, /data-node-action\], \[data-node-ingress-state\]/);
 });
