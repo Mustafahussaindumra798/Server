@@ -25,6 +25,8 @@ Example paths:
 - `/etc/cloudexify/tunnel/node-client.pem`
 - `/etc/cloudexify/tunnel/node-client-key.pem`
 
+The node client private key must be owned by the agent account and mode `0600` or stricter. The gateway server private key must likewise be owned by the gateway service account and mode `0600` or stricter; the gateway refuses symlinked/non-regular TLS files and wildcard/public bind addresses.
+
 Register the node certificate's lowercase, colon-free SHA-256 fingerprint, serial number and validity dates in `node_tunnel_certificates`, associated with the exact `node_id` and `tenant_id`. Certificate identity/validity fields are immutable after insertion, and revocation is one-way; registration and revocation write audit events. Provisioning is an operator-controlled database operation; never expose a public certificate-registration endpoint that accepts an arbitrary node ID or fingerprint. The database migration is `017_node_tunnel_certificates.sql`.
 
 For certificate rotation, issue a new per-node certificate, register its fingerprint, install the new certificate/key pair, verify a successful tunnel connection, then revoke the old fingerprint. To revoke immediately, set `revoked_at` for the certificate record. Existing connections are rechecked and closed within the configured 15-second authorization interval (plus database/network latency).
