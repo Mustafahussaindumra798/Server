@@ -35,7 +35,8 @@ test("health reports ready only when the existing control-plane schema is comple
     service: "cloudexify-control-plane",
     database: "connected",
     schema: "ready",
-    resource_admission: "ready"
+    resource_admission: "ready",
+    runtime_capabilities: "ready"
   });
 });
 
