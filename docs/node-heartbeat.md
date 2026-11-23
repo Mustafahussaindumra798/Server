@@ -10,9 +10,31 @@ Headers: Authorization: Bearer <node-credential>; Content-Type: application/json
 
 Example body:
 
-    { "agent_version": "0.1.0", "health_status": "healthy", "resources": { "cpu_cores": 4, "cpu_percent": 21.5, "memory_total_bytes": 8589934592, "memory_used_bytes": 3221225472, "uptime_seconds": 3600 } }
+    {
+      "agent_version": "0.1.0",
+      "health_status": "healthy",
+      "resources": {
+        "cpu_cores": 8,
+        "cpu_percent": 21.5,
+        "cpu_frequency_mhz": 1800,
+        "memory_total_bytes": 8589934592,
+        "memory_used_bytes": 3221225472,
+        "memory_available_bytes": 5368709120,
+        "disk_total_bytes": 128000000000,
+        "disk_used_bytes": 64000000000,
+        "disk_available_bytes": 64000000000,
+        "android_shared_storage_total_bytes": 128000000000,
+        "android_shared_storage_used_bytes": 40000000000,
+        "android_shared_storage_available_bytes": 88000000000,
+        "uptime_seconds": 3600
+      }
+    }
 
-Health must be healthy or degraded. Resource metrics are optional numeric values from the allowlist: cpu_percent, memory_total_bytes, memory_used_bytes, disk_total_bytes, disk_available_bytes, load_1m, uptime_seconds, battery_percent and temperature_c and cpu_cores. cpu_cores is the node's available logical CPU count (1–256) and is required for CPU capacity admission. Unknown keys, non-finite/negative values, CPU/battery percentages above 100, more than ten metrics, and payloads over 8 KiB are rejected.
+Health must be healthy or degraded. All resource metrics are optional numeric values from the allowlist: cpu_percent, cpu_cores, cpu_frequency_mhz, memory_total_bytes, memory_used_bytes, memory_available_bytes, disk_total_bytes, disk_used_bytes, disk_available_bytes, android_shared_storage_total_bytes, android_shared_storage_used_bytes, android_shared_storage_available_bytes, load_1m, uptime_seconds, battery_percent and temperature_c. The agent omits metrics it cannot read; it never fabricates values.
+
+RAM used is calculated as total minus MemAvailable, and RAM available is reported separately. Agent filesystem capacity is measured at the agent's data filesystem (Termux PREFIX on Android, root filesystem on Linux). Android shared storage at /storage/emulated/0 is reported separately and only when the user has granted Termux storage access. These are separate mount views and must not be added together. Disk used is total minus filesystem free blocks; disk available reflects unreserved blocks available to the agent.
+
+The API accepts up to 20 finite numeric metrics in a 16 KiB payload. Capacity triples must be internally consistent; CPU cores must be 1–256, CPU/battery percentages 0–100, CPU frequency at most 10,000 MHz and temperature at most 150 °C. Unknown keys and malformed values are rejected. Resource admission requires fresh cpu_cores, cpu_percent, memory_available_bytes and disk_available_bytes telemetry.
 
 ## Authentication and persistence
 
