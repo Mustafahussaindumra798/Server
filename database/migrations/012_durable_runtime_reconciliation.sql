@@ -65,7 +65,8 @@ BEGIN
           'health_check_timeout_seconds', v_deployment.health_check_timeout_seconds,
           'resources', jsonb_build_object(
             'cpu_millicores', (v_deployment.resource_requests_json->>'cpu_millicores')::integer,
-            'memory_bytes', (v_deployment.resource_requests_json->>'memory_bytes')::bigint
+            'memory_bytes', (v_deployment.resource_requests_json->>'memory_bytes')::bigint,
+            'disk_bytes', (v_deployment.resource_requests_json->>'disk_bytes')::bigint
           )
         ),
         'runtime-reconcile:' || v_deployment.id::text || ':' || gen_random_uuid()::text
