@@ -192,6 +192,10 @@ test("running deployment requires fresh telemetry and sufficient reserved capaci
   assert.equal(response.status, 201);
   const placement = api.pool.calls.find((call) => call.sql.includes("capacity_admitted") || call.sql.includes("cpu_millicores") && call.sql.includes("FOR UPDATE OF node SKIP LOCKED"));
   assert.ok(placement, "deployment placement must perform a locked capacity query");
+  assert.match(placement.sql, /node\.platform = 'linux'/);
+  assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,ready\}' = 'true'/);
+  assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,rootless\}' = 'true'/);
+  assert.match(placement.sql, /capabilities_json #>> '\{runtime_probe,podman,cgroup_version\}' = 'v2'/);
   const insert = api.pool.calls.find((call) => call.sql.startsWith("INSERT INTO deployments"));
   assert.equal(insert.params[3], "30000000-0000-4000-8000-000000000001");
   assert.equal(insert.params[4], "running");
