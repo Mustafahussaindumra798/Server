@@ -64,7 +64,7 @@ export async function enrollNode({ controlPlaneUrl, enrollmentToken, nodeName, s
       platform: identity.platform,
       architecture: identity.architecture,
       agent_version: AGENT_VERSION,
-      capabilities: getCapabilities()
+      capabilities: await getCapabilities()
     }
   });
   if (!response.node?.id || !response.credential?.secret) throw new Error("Enrollment response did not include a node ID and one-time credential.");
