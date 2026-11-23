@@ -46,6 +46,8 @@ GRANT EXECUTE ON FUNCTION app_private.enroll_node(text, text, text, text, text, 
   TO cloudexify_runtime;
 GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid, text, text, text, jsonb)
   TO cloudexify_runtime;
+GRANT EXECUTE ON FUNCTION app_private.accept_node_heartbeat(uuid, text, text, text, jsonb, jsonb)
+  TO cloudexify_runtime;
 GRANT EXECUTE ON FUNCTION app_private.node_credential_is_valid(uuid, text)
   TO cloudexify_runtime;
 GRANT EXECUTE ON FUNCTION app_private.claim_node_jobs(uuid, text, integer, integer)
