@@ -8,6 +8,7 @@ const nodeId = "30000000-0000-4000-8000-000000000001";
 class FakeSocket extends EventEmitter {
   constructor() { super(); this.destroyed = false; this.frames = []; }
   write(frame) { this.frames.push(JSON.parse(String(frame))); return true; }
+  destroy() { this.destroyed = true; this.emit("close"); }
 }
 
 test("gateway multiplexes an authenticated node stream and relays bounded data", async () => {
@@ -134,6 +135,7 @@ test("gateway forcibly detaches a node when graceful route drain times out", asy
   timeoutCallback();
   assert.deepEqual(await draining, { drained: false, activeStreams: 1 });
   assert.equal(manager.hasNode(nodeId), false);
+  assert.equal(socket.destroyed, true, "timed-out drain must close the mTLS socket to force a clean reconnect");
   assert.equal(manager.activeStreams, 0);
   assert.match(closeError.message, /drain timed out/);
 });
