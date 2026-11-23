@@ -113,12 +113,31 @@ INSERT INTO domain_verification_challenges (
   id, domain_claim_id, tenant_id, token_hash, record_name, expires_at
 ) VALUES (
   '72000000-0000-4000-8000-000000000011',
-  '71000000-0000-4000-8000-000000000011',
+  '71000000-0000-4000-8000-000000000001',
   '20000000-0000-4000-8000-000000000001',
   repeat('a', 64),
   '_cloudexify-verify.app.example.test',
   now() + interval '5 minutes'
 );
+
+DO $one_live_challenge$
+BEGIN
+  BEGIN
+    INSERT INTO domain_verification_challenges (
+      domain_claim_id, tenant_id, token_hash, record_name, expires_at
+    ) VALUES (
+      '71000000-0000-4000-8000-000000000011',
+      '20000000-0000-4000-8000-000000000001',
+      repeat('f', 64),
+      '_cloudexify-verify.app.example.test',
+      now() + interval '5 minutes'
+    );
+    RAISE EXCEPTION 'A second live challenge for one claim was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+END
+$one_live_challenge$;
 
 DO $domain_challenge_tests$
 DECLARE
@@ -232,6 +251,8 @@ DO $domain_expiry$
 DECLARE
   verified boolean;
   claim_status text;
+  revoked_count integer;
+  active_count integer;
 BEGIN
   SELECT app_private.verify_domain_claim(
     '71000000-0000-4000-8000-000000000021',
@@ -246,6 +267,33 @@ BEGIN
    WHERE id = '71000000-0000-4000-8000-000000000021';
   IF claim_status <> 'pending_verification' THEN
     RAISE EXCEPTION 'Expired challenge changed domain claim state';
+  END IF;
+
+  SELECT app_private.revoke_expired_domain_challenges(
+    '71000000-0000-4000-8000-000000000021'
+  ) INTO revoked_count;
+  IF revoked_count <> 1 THEN
+    RAISE EXCEPTION 'Expired challenge was not safely revoked';
+  END IF;
+
+  INSERT INTO domain_verification_challenges (
+    id, domain_claim_id, tenant_id, token_hash, record_name, expires_at
+  ) VALUES (
+    '72000000-0000-4000-8000-000000000022',
+    '71000000-0000-4000-8000-000000000021',
+    '20000000-0000-4000-8000-000000000001',
+    repeat('f', 64),
+    '_cloudexify-verify.expired.example.test',
+    now() + interval '5 minutes'
+  );
+
+  SELECT count(*) INTO active_count
+    FROM domain_verification_challenges
+   WHERE domain_claim_id = '71000000-0000-4000-8000-000000000021'
+     AND consumed_at IS NULL AND revoked_at IS NULL
+     AND expires_at > now();
+  IF active_count <> 1 THEN
+    RAISE EXCEPTION 'Replacement challenge was not created after expiry revocation';
   END IF;
 END
 $domain_expiry$;
