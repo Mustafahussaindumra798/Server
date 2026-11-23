@@ -41,7 +41,7 @@ function cleanHeaders(headers, hostname, remoteAddress, protocol) {
 
 class TunnelDuplex extends Duplex {
   constructor() {
-    super({ allowHalfOpen: false, autoDestroy: true });
+    super({ allowHalfOpen: true, autoDestroy: true });
     this.route = null;
     this.connecting = true;
     this.encrypted = false;
@@ -66,9 +66,7 @@ class TunnelDuplex extends Duplex {
       else if (!this.route.onDrain(callback)) callback(new Error("Tunnel route disconnected while writing."));
     } catch (error) { callback(error); }
   }
-  _final(callback) {
-    try { this.route?.close(); callback(); } catch (error) { callback(error); }
-  }
+  _final(callback) { callback(); }
   _destroy(error, callback) {
     try { this.route?.close(); } catch {}
     callback(error);
