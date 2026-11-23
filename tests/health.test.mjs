@@ -41,6 +41,9 @@ const readySchema = {
   deployment_endpoint_registration: true,
   domain_claims_table: true,
   domain_challenges_table: true,
+  deployment_domain_routes_table: true,
+  deployment_domain_route_register_function: true,
+  deployment_domain_route_reconcile_function: true,
   domain_verify_function: true,
   domain_expiry_function: true
 };
@@ -63,7 +66,8 @@ test("health reports ready only when the existing control-plane schema is comple
     durable_runtime_reconciliation: "ready",
     automatic_deployment_rollback: "ready",
     runtime_endpoint_registration: "ready",
-    domain_claims: "ready"
+    domain_claims: "ready",
+    deployment_domain_route_registry: "pending_transport_only"
   });
 });
 
@@ -143,6 +147,14 @@ test("health identifies migration 015 when domain claim APIs are not database-re
   await createHealthHandler(pool)({}, res);
   assert.equal(res.statusCode, 503);
   assert.deepEqual(JSON.parse(res.body).pending_migrations, ["015_domain_claims"]);
+});
+
+test("health identifies migration 016 when the deployment domain route registry is missing", async () => {
+  const pool = { query: async () => ({ rows: [{ ...readySchema, deployment_domain_routes_table: false }] }) };
+  const res = response();
+  await createHealthHandler(pool)({}, res);
+  assert.equal(res.statusCode, 503);
+  assert.deepEqual(JSON.parse(res.body).pending_migrations, ["016_deployment_domain_route_registry"]);
 });
 
 test("health handles unavailable database connections without leaking errors", async () => {
