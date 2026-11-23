@@ -57,7 +57,8 @@ test("health reports ready only when the existing control-plane schema is comple
     deployment_health_checks: "ready",
     deployment_lifecycle_jobs: "ready",
     durable_runtime_reconciliation: "ready",
-    automatic_deployment_rollback: "ready"
+    automatic_deployment_rollback: "ready",
+    runtime_endpoint_registration: "ready"
   });
 });
 
