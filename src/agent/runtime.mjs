@@ -125,7 +125,7 @@ export class PodmanWorkloadRuntime {
       const localPort = this.getHostPort(existing, payload.container_port);
       try {
         const health = await this.waitForHealth(localPort, payload);
-        return { result_code: "workload_healthy", result_summary: "Existing deployment container passed its application health check.", container_name: payload.container_name, local_port: localPort, health };
+        return { result_code: "workload_healthy", result_summary: "Existing deployment container passed its application health check.", container_name: payload.container_name, local_port: localPort, result_metadata: { local_port: localPort, container_name: payload.container_name }, health };
       } catch (error) {
         await this.removeUnhealthyContainer(payload.container_name);
         throw error;
@@ -165,6 +165,7 @@ export class PodmanWorkloadRuntime {
         result_summary: "Rootless OCI container started and passed its application HTTP health check.",
         container_name: payload.container_name,
         local_port: localPort,
+        result_metadata: { local_port: localPort, container_name: payload.container_name },
         health
       };
     } catch (error) {
@@ -212,7 +213,7 @@ export class PodmanWorkloadRuntime {
     const localPort = this.getHostPort(after, containerPort);
     try {
       const health = await this.waitForHealth(localPort, { health_check_path: healthCheckPath, health_check_timeout_seconds: healthCheckTimeout });
-      return { result_code: "workload_healthy", result_summary: "Container restarted and passed its application HTTP health check.", container_name: name, local_port: localPort, health };
+      return { result_code: "workload_healthy", result_summary: "Container restarted and passed its application HTTP health check.", container_name: name, local_port: localPort, result_metadata: { local_port: localPort, container_name: name }, health };
     } catch (error) {
       await this.removeUnhealthyContainer(name);
       throw error;
