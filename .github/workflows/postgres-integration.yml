@@ -67,6 +67,8 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/012_durable_runtime_reconciliation.sql
       - name: Apply automatic deployment rollback migration
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/013_automatic_deployment_rollback.sql
+      - name: Apply runtime endpoint registration migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/migrations/014_runtime_endpoint_registration.sql
       - name: Run PostgreSQL integration checks
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/rls.integration.sql
       - name: Verify runtime capability heartbeat
@@ -81,5 +83,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/durable-runtime-reconciliation.integration.sql
       - name: Verify automatic deployment rollback
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/automatic-deployment-rollback.integration.sql
+      - name: Verify runtime endpoint registration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/postgres/runtime-endpoint-registration.integration.sql
       - name: Run application tests
         run: npm test
