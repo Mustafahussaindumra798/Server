@@ -5,7 +5,7 @@ import { isIP } from "node:net";
 
 const HOP_BY_HOP = new Set([
   "connection", "keep-alive", "proxy-connection", "proxy-authenticate", "proxy-authorization",
-  "te", "trailer", "transfer-encoding", "upgrade"
+  "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-real-ip"
 ]);
 const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 60000;
@@ -46,12 +46,22 @@ class TunnelDuplex extends Duplex {
     this.connecting = true;
     this.encrypted = false;
     this.upstreamPaused = false;
+    this.timeoutMs = 0;
+    this.timeoutTimer = null;
   }
   attach(route) {
     this.route = route;
     this.connecting = false;
   }
+  refreshTimeout() {
+    clearTimeout(this.timeoutTimer);
+    if (this.timeoutMs > 0 && !this.destroyed) {
+      this.timeoutTimer = setTimeout(() => this.emit("timeout"), this.timeoutMs);
+      this.timeoutTimer.unref?.();
+    }
+  }
   receive(data) {
+    this.refreshTimeout();
     if (!this.destroyed && !this.push(data) && !this.upstreamPaused) {
       this.upstreamPaused = true;
       try { this.route?.pause(); } catch (error) { this.destroy(error); }
@@ -68,6 +78,7 @@ class TunnelDuplex extends Duplex {
     }
   }
   _write(chunk, _encoding, callback) {
+    this.refreshTimeout();
     if (!this.route) { callback(new Error("Tunnel route is not connected.")); return; }
     try {
       if (this.route.write(chunk)) callback();
@@ -76,12 +87,18 @@ class TunnelDuplex extends Duplex {
   }
   _final(callback) { callback(); }
   _destroy(error, callback) {
+    clearTimeout(this.timeoutTimer);
     try { this.route?.close(); } catch {}
     callback(error);
   }
   setNoDelay() { return this; }
   setKeepAlive() { return this; }
-  setTimeout(_timeout, callback) { if (callback) this.once("timeout", callback); return this; }
+  setTimeout(timeout, callback) {
+    this.timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : 0;
+    this.refreshTimeout();
+    if (callback) this.once("timeout", callback);
+    return this;
+  }
   ref() { return this; }
   unref() { return this; }
 }
