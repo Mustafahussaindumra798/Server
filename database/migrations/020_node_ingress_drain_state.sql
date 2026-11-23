@@ -9,8 +9,5 @@ ALTER TABLE public.nodes
 COMMENT ON COLUMN public.nodes.ingress_draining IS
   'When true, the ingress gateway stops admitting new route streams and drains existing streams. Does not change deployment or route eligibility.';
 
-CREATE INDEX nodes_ingress_draining_idx
-  ON public.nodes (id)
-  WHERE ingress_draining = true;
 
 COMMIT;
