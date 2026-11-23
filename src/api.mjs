@@ -577,7 +577,7 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
             throw error;
           }
           const target = await client.query(
-            "SELECT id, status, approved_at, last_seen_at, heartbeat_interval_seconds, capabilities_json, ingress_draining FROM nodes WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            "SELECT id, status, approved_at, platform, last_seen_at, heartbeat_interval_seconds, (last_seen_at > clock_timestamp() - make_interval(secs => heartbeat_interval_seconds * 3)) AS heartbeat_fresh, capabilities_json, ingress_draining FROM nodes WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
             [nodeId, tenantId]
           );
           const current = target.rows[0];
@@ -590,8 +590,8 @@ export function createApiHandler({ pool, env = process.env, fetchImpl = fetch, r
           const shouldDrain = body.ingress_state === "draining";
           if (!shouldDrain && (
             current.status !== "online" ||
-            !current.last_seen_at ||
-            new Date(current.last_seen_at).getTime() <= Date.now() - Number(current.heartbeat_interval_seconds) * 3000 ||
+            current.platform !== "linux" ||
+            current.heartbeat_fresh !== true ||
             current.capabilities_json?.ingress_tunnel !== true ||
             current.capabilities_json?.loopback_forwarder !== true
           )) {
