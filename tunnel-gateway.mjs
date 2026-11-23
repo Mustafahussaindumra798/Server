@@ -11,8 +11,17 @@ function required(name) {
 }
 
 function listenAddress(value) {
-  if (!value || isIP(value) === 0 || value === "0.0.0.0" || value === "::") {
-    throw new Error("CLOUDEXIFY_TUNNEL_LISTEN_HOST must be an explicit private interface IP, not a wildcard.");
+  const version = isIP(value);
+  const loopback = value === "127.0.0.1" || value === "::1";
+  const privateV4 = version === 4 && (() => {
+    const [a, b] = value.split(".").map(Number);
+    return a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 169 && b === 254) ||
+      (a === 127);
+  })();
+  const privateV6 = version === 6 && (/^(fc|fd)/i.test(value) || /^fe[89ab]/i.test(value));
+  if (!value || version === 0 || (!loopback && !privateV4 && !privateV6)) {
+    throw new Error("CLOUDEXIFY_TUNNEL_LISTEN_HOST must be loopback or a private/link-local interface IP; public and wildcard binds are forbidden.");
   }
   return value;
 }
