@@ -76,6 +76,56 @@ test("gateway tunnel listener enforces TLS 1.3, client certificates and the priv
   assert.throws(() => createNodeTunnelServer({ tlsOptions: {}, authorizeCertificate: async () => true }));
 });
 
+test("gateway closes an established tunnel after certificate authorization is revoked", async () => {
+  let connectionHandler;
+  let authorizationCalls = 0;
+  class FakeServer extends EventEmitter {}
+  class FakeSocket extends EventEmitter {
+    constructor() {
+      super();
+      this.authorized = true;
+      this.alpnProtocol = GATEWAY_ALPN;
+      this.destroyed = false;
+      this.writes = [];
+    }
+    getPeerCertificate() {
+      return {
+        fingerprint256: fingerprint.match(/.{2}/g).join(":"),
+        serialNumber: "01AB",
+        subject: { CN: nodeId }
+      };
+    }
+    write(frame) { this.writes.push(JSON.parse(String(frame))); return true; }
+    end() { this.destroyed = true; this.emit("close"); }
+    destroy() { this.destroyed = true; this.emit("close"); }
+  }
+  const fakeServer = new FakeServer();
+  createNodeTunnelServer({
+    tlsOptions: { key: "private", cert: "public", ca: "client-ca" },
+    authorizeCertificate: async () => ++authorizationCalls === 1,
+    authorizationRecheckMs: 1000,
+    pingIntervalMs: 10000,
+    createServer(_options, callback) {
+      connectionHandler = callback;
+      return fakeServer;
+    }
+  });
+  const socket = new FakeSocket();
+  connectionHandler(socket);
+  socket.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\n"));
+  const waitFor = async (predicate) => {
+    for (let i = 0; i < 150; i += 1) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("Timed out waiting for gateway certificate revocation.");
+  };
+  await waitFor(() => socket.writes.some((message) => message.type === "welcome"));
+  await waitFor(() => socket.destroyed);
+  assert.ok(socket.writes.some((message) => message.type === "error" && message.code === "NODE_TUNNEL_REVOKED"));
+  assert.ok(authorizationCalls >= 2);
+});
+
 test("node tunnel reconnects after a dropped transport and stops cleanly", async () => {
   const sockets = [];
   const states = [];
