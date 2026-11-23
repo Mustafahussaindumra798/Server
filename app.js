@@ -481,7 +481,7 @@ async function init() {
     const nodes = state.data.nodes.filter((node) => ["online", "degraded"].includes(node.status));
     showResourceDialog({
       title: "Request deployment",
-      description: "Queue a deployment on an eligible Linux node. Provide an immutable OCI image digest; public ingress and application health checks are not enabled yet.",
+      description: "Queue a deployment job on a qualified Linux node. Full customer workload execution is not enabled until application health checks and public ingress are complete. Provide an immutable OCI image digest.",
       fields: [
         { name: "application_id", label: "Application", type: "select", required: true, options: apps.map((app, index) => ({ value: app.id, label: app.name, selected: index === 0 })) },
         { name: "image_digest", label: "Immutable OCI image digest (required for running)", required: false, maxLength: 300, placeholder: "registry.example.com/team/app@sha256:<64 hex>" },
