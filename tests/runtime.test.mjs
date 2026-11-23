@@ -86,15 +86,19 @@ test("restart rejects missing containers", async () => {
   await assert.rejects(runtime.restart(deploymentId), /Podman workload operation failed/);
 });
 
-test("restart verifies the container is running after Podman restart", async () => {
+test("restart verifies the container and HTTP health after Podman restart", async () => {
   let running = true;
   const runCommand = async (_command, args) => {
-    if (args[0] === "inspect") return { stdout: JSON.stringify([{ State: { Running: running } }]) };
+    if (args[0] === "inspect") return { stdout: JSON.stringify([{ State: { Running: running }, NetworkSettings: { Ports: { "8080/tcp": [{ HostIp: "127.0.0.1", HostPort: "49155" }] } } }]) };
     if (args[0] === "restart") { running = true; return { stdout: "" }; }
     throw new Error("unexpected command");
   };
-  const runtime = new PodmanWorkloadRuntime({ runCommand, runtimeProbe: qualified });
-  assert.equal((await runtime.restart(deploymentId)).result_code, "workload_restarted");
+  const runtime = new PodmanWorkloadRuntime({
+    runCommand, runtimeProbe: qualified,
+    fetchImpl: async (url) => { assert.equal(url, "http://127.0.0.1:49155/healthz"); return { status: 204 }; }
+  });
+  const result = await runtime.restart(deploymentId, { container_port: 8080, health_check_path: "/healthz", health_check_timeout_seconds: 5 });
+  assert.equal(result.result_code, "workload_healthy");
 });
 
 test("deployment refuses unsigned images before Podman pulls or runs them", async () => {
