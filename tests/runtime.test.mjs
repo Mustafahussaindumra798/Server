@@ -56,6 +56,7 @@ test("deployment starts with bounded, isolated Podman arguments and confirms run
   const result = await runtime.deploy(payload);
   assert.equal(result.result_code, "workload_healthy");
   assert.equal(result.local_port, 49152);
+  assert.deepEqual(result.result_metadata, { local_port: 49152, container_name: "cloudexify-" + deploymentId });
   assert.equal(result.health.status_code, 200);
   const runArgs = calls.find((args) => args[0] === "run");
   for (const required of ["--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=128", "--network=slirp4netns", "--user=10001:10001"]) {
@@ -110,6 +111,7 @@ test("restart verifies the container and HTTP health after Podman restart", asyn
   });
   const result = await runtime.restart(deploymentId, { container_port: 8080, health_check_path: "/healthz", health_check_timeout_seconds: 5 });
   assert.equal(result.result_code, "workload_healthy");
+  assert.deepEqual(result.result_metadata, { local_port: 49155, container_name: "cloudexify-" + deploymentId });
 });
 
 test("deployment refuses unsigned images before Podman pulls or runs them", async () => {
