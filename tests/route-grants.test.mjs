@@ -46,5 +46,7 @@ test("route grant signer rejects arbitrary hosts, invalid ports and excessive li
   assert.throws(() => signer({ ...route, local_port: 0 }));
   assert.throws(() => signer({ ...route, hostname: "" }));
   assert.throws(() => signer(route, { ttlSeconds: 61 }));
-  assert.throws(() => signer({ ...route, upstream: "http://127.0.0.1:80" }));
+  const { claims } = signer({ ...route, upstream: "http://169.254.169.254/latest/meta-data" });
+  assert.deepEqual(claims.upstream, { host: "127.0.0.1", port: route.local_port });
+  assert.throws(() => signer({ ...route, hostname: "https://evil.example.test/path" }));
 });
