@@ -163,6 +163,7 @@ test("agent sends heartbeat and polls its own node queue", async (t) => {
     }
   });
   assert.ok(calls.some((call) => call.url.endsWith("/heartbeat")));
+  assert.ok(calls.some((call) => call.url.endsWith("/runtime/reconcile")));
   const heartbeatCall = calls.find((call) => call.url.endsWith("/heartbeat"));
   const heartbeatBody = JSON.parse(heartbeatCall.options.body);
   assert.equal(heartbeatBody.capabilities.workload_execution, false);
@@ -199,6 +200,7 @@ test("agent terminally rejects workload jobs on nodes without qualified Podman",
     runtimeProbe: async () => ({ ready: false, rootless: false, cgroup_version: "v1", cgroup_v2_available: false }),
     onLog: (_level, message) => { if (message === "Diagnostic job failed") controller.abort(); },
     fetchImpl: async (url, options) => {
+      if (url.endsWith("/runtime/reconcile")) return new Response(JSON.stringify({ reconciled_jobs: 0 }), { status: 200 });
       if (url.endsWith("/heartbeat")) return new Response(JSON.stringify({ node: { status: "online" } }), { status: 200 });
       if (url.endsWith("/jobs/claim")) return new Response(JSON.stringify({ jobs: [job] }), { status: 200 });
       if (url.endsWith("/ack")) {
