@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, chmod, lstat, symlink, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getLinuxIdentity, getCapabilities, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
+import { getLinuxIdentity, getCapabilities, detectPodmanRuntime, validateControlPlaneUrl, readLinuxMetrics } from "../src/agent/linux.mjs";
 import { loadAgentState, saveAgentState } from "../src/agent/state.mjs";
 import { executeDiagnostic, enrollNode, runAgent } from "../agent.mjs";
 
@@ -156,9 +156,75 @@ test("agent stops when the control plane rejects its node credential", async (t)
   }), /invalid, expired or revoked/);
 });
 
-test("agent advertises diagnostics but does not claim workload execution", () => {
-  const capabilities = getCapabilities();
+test("Podman runtime probe requires rootless mode and cgroup v2", async () => {
+  const runtime = await detectPodmanRuntime({
+    runCommand: async (command, args, options) => {
+      assert.equal(command, "podman");
+      assert.deepEqual(args, ["info", "--format", "json"]);
+      assert.equal(options.timeout, 3000);
+      return { stdout: JSON.stringify({
+        host: { security: { rootless: true }, cgroupVersion: "v2" },
+        version: { Version: "5.0.1" }
+      }) };
+    },
+    readCgroupControllers: async () => "cpu memory pids"
+  });
+  assert.deepEqual(runtime, {
+    available: true, ready: true, version: "5.0.1", rootless: true,
+    cgroup_version: "v2", cgroup_v2_available: true, reason: null
+  });
+});
+
+test("Podman runtime probe fails closed when rootless or cgroup v2 requirements are missing", async () => {
+  const notRootless = await detectPodmanRuntime({
+    runCommand: async () => ({ stdout: JSON.stringify({
+      host: { security: { rootless: false }, cgroupVersion: "v2" },
+      version: { Version: "5.0.1" }
+    }) }),
+    readCgroupControllers: async () => "cpu memory"
+  });
+  assert.equal(notRootless.ready, false);
+  assert.equal(notRootless.reason, "podman_not_rootless");
+
+  const noCgroupV2 = await detectPodmanRuntime({
+    runCommand: async () => ({ stdout: JSON.stringify({
+      host: { security: { rootless: true }, cgroupVersion: "v1" },
+      version: { Version: "5.0.1" }
+    }) }),
+    readCgroupControllers: async () => { throw new Error("not mounted"); }
+  });
+  assert.equal(noCgroupV2.ready, false);
+  assert.equal(noCgroupV2.reason, "cgroup_v2_unavailable");
+});
+
+test("Podman runtime probe handles missing binary and malformed output without throwing", async () => {
+  const missing = await detectPodmanRuntime({ runCommand: async () => { throw new Error("ENOENT"); } });
+  assert.equal(missing.available, false);
+  assert.equal(missing.ready, false);
+  const malformed = await detectPodmanRuntime({ runCommand: async () => ({ stdout: "not-json" }) });
+  assert.equal(malformed.available, false);
+  assert.equal(malformed.ready, false);
+});
+
+test("agent advertises diagnostics and detected runtime without claiming workload execution", async () => {
+  const capabilities = await getCapabilities(
+    getLinuxIdentity("linux", "x64"),
+    { podmanProbe: async () => ({ available: true, ready: true, version: "5.0.1", rootless: true, cgroup_version: "v2", cgroup_v2_available: true, reason: null }) }
+  );
   assert.deepEqual(capabilities.diagnostics, ["probe", "collect_metrics"]);
+  assert.equal(capabilities.container_runtime, "podman-rootless");
+  assert.equal(capabilities.runtime_probe.podman.ready, true);
   assert.equal(capabilities.workload_execution, false);
   assert.ok(capabilities.service_manager === null || capabilities.service_manager === "systemd");
+});
+
+test("Termux never probes or advertises a container runtime", async () => {
+  let probed = false;
+  const capabilities = await getCapabilities(
+    getLinuxIdentity("linux", "arm64", { TERMUX_VERSION: "0.118" }),
+    { podmanProbe: async () => { probed = true; return { available: true, ready: true }; } }
+  );
+  assert.equal(probed, false);
+  assert.equal(capabilities.container_runtime, null);
+  assert.equal(capabilities.workload_execution, false);
 });
