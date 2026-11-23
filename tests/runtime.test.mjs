@@ -83,7 +83,7 @@ test("restart rejects missing containers", async () => {
     throw new Error("unexpected command");
   };
   const runtime = new PodmanWorkloadRuntime({ runCommand, runtimeProbe: qualified });
-  await assert.rejects(runtime.restart(deploymentId), /Podman workload operation failed/);
+  await assert.rejects(runtime.restart(deploymentId, { container_port: 8080, health_check_path: "/", health_check_timeout_seconds: 5 }), /Podman workload operation failed/);
 });
 
 test("restart verifies the container and HTTP health after Podman restart", async () => {
