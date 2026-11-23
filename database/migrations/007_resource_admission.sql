@@ -7,12 +7,13 @@ ALTER TABLE public.applications
     '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}'::jsonb
     CHECK (jsonb_typeof(resource_requests_json) = 'object')
     CHECK (
-      (resource_requests_json->>'cpu_millicores') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'cpu_millicores')::bigint BETWEEN 50 AND 64000
-      AND (resource_requests_json->>'memory_bytes') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'memory_bytes')::bigint BETWEEN 16777216 AND 1099511627776
-      AND (resource_requests_json->>'disk_bytes') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'disk_bytes')::bigint BETWEEN 16777216 AND 1099511627776
+      CASE WHEN jsonb_typeof(resource_requests_json->'cpu_millicores') = 'number'
+        AND jsonb_typeof(resource_requests_json->'memory_bytes') = 'number'
+        AND jsonb_typeof(resource_requests_json->'disk_bytes') = 'number'
+      THEN (resource_requests_json->>'cpu_millicores')::numeric BETWEEN 50 AND 64000
+        AND (resource_requests_json->>'memory_bytes')::numeric BETWEEN 16777216 AND 1099511627776
+        AND (resource_requests_json->>'disk_bytes')::numeric BETWEEN 16777216 AND 1099511627776
+      ELSE false END
     );
 
 ALTER TABLE public.deployments
@@ -20,12 +21,13 @@ ALTER TABLE public.deployments
     '{"cpu_millicores":250,"memory_bytes":268435456,"disk_bytes":1073741824}'::jsonb
     CHECK (jsonb_typeof(resource_requests_json) = 'object')
     CHECK (
-      (resource_requests_json->>'cpu_millicores') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'cpu_millicores')::bigint BETWEEN 50 AND 64000
-      AND (resource_requests_json->>'memory_bytes') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'memory_bytes')::bigint BETWEEN 16777216 AND 1099511627776
-      AND (resource_requests_json->>'disk_bytes') ~ '^[0-9]+$'
-      AND (resource_requests_json->>'disk_bytes')::bigint BETWEEN 16777216 AND 1099511627776
+      CASE WHEN jsonb_typeof(resource_requests_json->'cpu_millicores') = 'number'
+        AND jsonb_typeof(resource_requests_json->'memory_bytes') = 'number'
+        AND jsonb_typeof(resource_requests_json->'disk_bytes') = 'number'
+      THEN (resource_requests_json->>'cpu_millicores')::numeric BETWEEN 50 AND 64000
+        AND (resource_requests_json->>'memory_bytes')::numeric BETWEEN 16777216 AND 1099511627776
+        AND (resource_requests_json->>'disk_bytes')::numeric BETWEEN 16777216 AND 1099511627776
+      ELSE false END
     );
 
 CREATE INDEX deployments_node_reservations_idx
