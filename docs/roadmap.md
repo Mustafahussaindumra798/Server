@@ -1,6 +1,6 @@
 # Delivery roadmap and implementation checklist
 
-**Current stage:** Phase 1 — completing the control-plane dashboard and session/API reliability before scheduler and workload execution. Both Android/Termux devices have enrolled and connected (user-confirmed). Latest code changes are in `main`; production deployment and manual end-to-end QA must be verified before marking this phase complete.
+**Current stage:** Phase 3 — resource admission and safe node placement are being implemented; actual workload execution remains disabled. Both Android/Termux devices have enrolled and connected (user-confirmed). Latest code changes are in `main`; production deployment and manual end-to-end QA must be verified before marking this phase complete.
 
 ## Milestone 0 — Dashboard prototype
 - [x] Responsive dashboard shell and navigation
@@ -92,7 +92,10 @@
 - [x] Tenant-wide idempotency serialization so retries retain the original node assignment
 - [ ] Load-aware capacity weights and fairness qualification under concurrent physical-node load
 - [ ] End-to-end multi-node job claim/ack test on both Android devices
-- [ ] Resource admission and placement policy
+- [x] Resource requests and bounded CPU/memory/disk admission policy (migration/API/tests added; CI verification pending)
+- [x] Capacity reservations for active deployment revisions
+- [x] Fresh-heartbeat requirement and locked node selection; stale/unknown capacity fails closed
+- [ ] Physical-node capacity qualification and real workload execution
 - [ ] Deployment revisions, health gates, rollback and event stream
 - [ ] Per-node workload isolation and quotas
 
