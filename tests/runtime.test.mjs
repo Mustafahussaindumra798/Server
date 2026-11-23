@@ -67,7 +67,7 @@ test("stop confirms process termination and is idempotent", async () => {
   assert.equal((await runtime.stop(deploymentId)).result_code, "workload_already_stopped");
 });
 
-test("restart confirms a running container and rejects missing containers", async () => {
+test("restart rejects missing containers", async () => {
   let running = false;
   const runCommand = async (_command, args) => {
     if (args[0] === "inspect") {
@@ -79,4 +79,15 @@ test("restart confirms a running container and rejects missing containers", asyn
   };
   const runtime = new PodmanWorkloadRuntime({ runCommand, runtimeProbe: qualified });
   await assert.rejects(runtime.restart(deploymentId), /Podman workload operation failed/);
+});
+
+test("restart verifies the container is running after Podman restart", async () => {
+  let running = true;
+  const runCommand = async (_command, args) => {
+    if (args[0] === "inspect") return { stdout: JSON.stringify([{ State: { Running: running } }]) };
+    if (args[0] === "restart") { running = true; return { stdout: "" }; }
+    throw new Error("unexpected command");
+  };
+  const runtime = new PodmanWorkloadRuntime({ runCommand, runtimeProbe: qualified });
+  assert.equal((await runtime.restart(deploymentId)).result_code, "workload_restarted");
 });
