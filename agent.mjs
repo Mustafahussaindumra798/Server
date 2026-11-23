@@ -4,6 +4,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { getCapabilities, getLinuxIdentity, readLinuxMetrics, validateControlPlaneUrl } from "./src/agent/linux.mjs";
 import { defaultStateDirectory, loadAgentState, saveAgentState } from "./src/agent/state.mjs";
+import { detectPodmanRuntime } from "./src/agent/linux.mjs";
+import { PodmanWorkloadRuntime } from "./src/agent/runtime.mjs";
 
 export const AGENT_VERSION = "0.1.0";
 const DEFAULT_HEARTBEAT_SECONDS = 3;
@@ -79,6 +81,22 @@ export async function enrollNode({ controlPlaneUrl, enrollmentToken, nodeName, s
   return { node: response.node, stateDirectory };
 }
 
+export async function executeWorkloadJob(job, { runtime } = {}) {
+  if (!runtime) throw new Error("Workload runtime is not configured on this node.");
+  if (!job || !["deploy", "stop", "restart"].includes(job.job_type) ||
+      !job.payload || typeof job.payload !== "object" || Array.isArray(job.payload)) {
+    throw new Error("Unsupported or malformed workload job.");
+  }
+  if (job.job_type === "deploy") return runtime.deploy(job.payload);
+  const allowed = ["deployment_id"];
+  if (Object.keys(job.payload).some((key) => !allowed.includes(key)) ||
+      typeof job.payload.deployment_id !== "string") {
+    throw new Error("Workload lifecycle payload is malformed.");
+  }
+  if (job.job_type === "stop") return runtime.stop(job.payload.deployment_id);
+  return runtime.restart(job.payload.deployment_id);
+}
+
 export async function executeDiagnostic(job, { fetchImpl = fetch, controlPlaneUrl, procRoot = "/proc", diskPath = "/" } = {}) {
   if (!job || !["probe", "collect_metrics"].includes(job.job_type) ||
       !job.payload || typeof job.payload !== "object" || Array.isArray(job.payload) || Object.keys(job.payload).length !== 0) {
@@ -115,6 +133,7 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
   let nextHeartbeat = 0;
   let nextPoll = 0;
   let lastCpuMetrics = null;
+  const workloadRuntime = new PodmanWorkloadRuntime({ runtimeProbe: identity.platform === "linux" ? detectPodmanRuntime : async () => ({ ready: false, rootless: false, cgroup_version: null, cgroup_v2_available: false }) });
   onLog("info", "Linux/Android node agent started", { node_id: state.node_id, node_name: state.node_name, platform: identity.platform, architecture: identity.architecture, version: AGENT_VERSION });
 
   while (!signal?.aborted) {
@@ -147,7 +166,9 @@ export async function runAgent({ stateDirectory = defaultStateDirectory(), fetch
           try {
             await acknowledge(fetchImpl, state, job, "accepted");
             await acknowledge(fetchImpl, state, job, "running");
-            const result = await executeDiagnostic(job, { fetchImpl, controlPlaneUrl: state.control_plane_url });
+            const result = ["probe", "collect_metrics"].includes(job.job_type)
+              ? await executeDiagnostic(job, { fetchImpl, controlPlaneUrl: state.control_plane_url })
+              : await executeWorkloadJob(job, { runtime: workloadRuntime });
             await acknowledge(fetchImpl, state, job, "succeeded", result);
             onLog("info", "Diagnostic job completed", { node_id: state.node_id, job_id: job.job_id, job_type: job.job_type, result_code: result.result_code });
           } catch (error) {
