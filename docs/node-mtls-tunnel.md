@@ -65,11 +65,33 @@ The node must send its existing node credential as a Bearer token. The control p
 
 The signing key is supplied only to the control plane as `CLOUDEXIFY_ROUTE_GRANT_PRIVATE_KEY`. It must be an Ed25519 private key in PEM form. Never put this private key on a node or in the repository. Nodes will receive only the matching Ed25519 public key through protected agent configuration. The grant format and verifier enforce the exact node identity, short expiry, unique grant ID, route version and `127.0.0.1` upstream. A gateway-provided host or port is never accepted as an authorization source. The Linux agent accepts `CLOUDEXIFY_ROUTE_GRANT_PUBLIC_KEY` (Ed25519 public PEM) and verifies each `route_open` grant before opening a socket. It enforces one-time grant IDs, exact node binding, 32 concurrent streams, strict stream IDs, bounded base64 data frames, idle timeouts and loopback-only `net.connect`; the upstream port comes only from signed claims. The node emits `route_opened`, `route_data`, `route_close` and `route_error` frames. The gateway-side stream scheduler and reverse proxy are not yet implemented, so these frames are not currently driven by customer HTTP traffic.
 
-The grant endpoint requires the protected signing key and an active, transport-qualified route. Migration `018_activate_ingress_routes.sql` activates routes only when the verified domain, healthy deployment and approved Linux node are eligible and the node advertises both ingress capability flags. The gateway-side stream scheduler, backpressure coordination, HTTPS reverse proxy and node-side loopback forwarder are implemented. Public ingress remains disabled by default and is not production-qualified.
+The grant endpoint requires the protected signing key and an active, transport-qualified route on a node that is not marked `ingress_draining`. Migration `018_activate_ingress_routes.sql` activates routes only when the verified domain, healthy deployment and approved Linux node are eligible and the node advertises both ingress capability flags. The gateway-side stream scheduler, backpressure coordination, HTTPS reverse proxy and node-side loopback forwarder are implemented. Public ingress remains disabled by default and is not production-qualified.
+
+## Graceful ingress node draining
+
+Migration `020_node_ingress_drain_state.sql` adds `nodes.ingress_draining`, defaulting to false. An Owner/Admin can change it through:
+
+`POST /api/v1/tenants/{tenant_id}/nodes/{node_id}/state`
+
+Request body to stop new ingress traffic:
+
+```json
+{ "ingress_state": "draining" }
+```
+
+Request body to resume ingress admission:
+
+```json
+{ "ingress_state": "active" }
+```
+
+Both transitions are tenant-scoped, require `manageNodes`, and write audit events. Resuming requires a fresh, approved, online Linux node advertising both ingress tunnel and loopback-forwarder capabilities. The gateway polls drain state for connected nodes every three seconds. While draining, the gateway route lookup and node grant authorization reject new requests; route status and route version are intentionally unchanged, allowing requests already in progress to pass revalidation and finish. The stream manager resumes admission when the database flag is cleared. If a drain exceeds the configured 30-second default (bounded 1–120 seconds), the gateway closes the tunnel and fails remaining requests closed.
+
+The node list API exposes `ingress_draining`. This is an operational API capability; dashboard controls are not yet added. The migration is included in PostgreSQL CI and must be applied to the correct Server database before using the endpoint. It has not been applied to production.
 
 ## HTTPS hostname ingress and reverse proxy
 
-The gateway includes an opt-in HTTPS listener. It terminates client TLS, normalizes the HTTP Host header, resolves only an active route in the tenant-scoped route registry, checks that the route's exact node has a live authenticated tunnel, obtains a short-lived Ed25519 grant, and proxies the HTTP request through a dedicated multiplexed tunnel stream to the signed loopback port. The node never accepts a gateway-supplied host or port. The gateway strips hop-by-hop headers, sets trusted X-Forwarded-* headers, enforces request/header/stream bounds and timeouts, and returns 404/421/502/503 errors fail-closed. During each active request it revalidates the exact route ID/version, tenant/domain/deployment eligibility, target node and loopback port approximately every 15 seconds. Route revocation, endpoint changes, node disconnects or database revalidation errors terminate existing traffic fail-closed. Migration `019_ingress_route_endpoint_version.sql` advances the route version when the deployment loopback port changes; target-node changes suspend the old node-pinned route.
+The gateway includes an opt-in HTTPS listener. It terminates client TLS, normalizes the HTTP Host header, resolves only an active route in the tenant-scoped route registry, checks that the route's exact node has a live authenticated tunnel, obtains a short-lived Ed25519 grant, and proxies the HTTP request through a dedicated multiplexed tunnel stream to the signed loopback port. The node never accepts a gateway-supplied host or port. The gateway strips hop-by-hop headers, sets trusted X-Forwarded-* headers, enforces request/header/stream bounds and timeouts, and returns 404/421/502/503 errors fail-closed. During each active request it revalidates the exact route ID/version, tenant/domain/deployment eligibility, target node and loopback port approximately every 15 seconds. The revalidation deliberately does not reject `ingress_draining=true`, so requests admitted before drain can finish. Route revocation, endpoint changes, node disconnects or database revalidation errors terminate existing traffic fail-closed. Migration `019_ingress_route_endpoint_version.sql` advances the route version when the deployment loopback port changes; target-node changes suspend the old node-pinned route.
 
 A new migration, 018_activate_ingress_routes.sql, adds the guarded active route state. A route becomes active only when the domain, tenant, application, deployment endpoint and approved Linux node remain eligible and the node heartbeat advertises both ingress_tunnel=true and loopback_forwarder=true. Removing either capability, losing node eligibility, or making the deployment/domain unhealthy suspends the route. The gateway independently checks the live mTLS session before proxying. The existing route-grant authorization query now issues grants only for active, transport-qualified routes.
 
@@ -91,7 +113,7 @@ Nodes advertise the two ingress capability flags only when all mTLS tunnel setti
 ## Current limitations
 
 - The HTTPS reverse proxy and node-side TCP forwarding are implemented, but public ingress is opt-in and must remain disabled until database migration, TLS, firewall and physical-node release gates are satisfied.
-- Automated certificate issuance/renewal, multi-certificate SNI selection, multi-node failover, graceful route draining, production firewall qualification and physical Debian 12 workload qualification remain pending.
+- Automated certificate issuance/renewal, multi-certificate SNI selection, multi-node failover, production firewall qualification and physical Debian 12 workload qualification remain pending. Database-backed graceful node draining is implemented, but dashboard controls and production operations qualification remain pending.
 - Certificate issuance and rotation are operator-managed; automated PKI enrollment is not implemented.
 - A gateway restart drops tunnels; node agents reconnect. No persistent gateway session state is required.
 - Physical Debian 12 x86_64/ARM64 qualification and firewall review are still required.
