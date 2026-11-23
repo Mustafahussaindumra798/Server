@@ -16,7 +16,7 @@ INSERT INTO domain_verification_challenges (
   id, domain_claim_id, tenant_id, token_hash, record_name, expires_at
 ) VALUES (
   '72000000-0000-4000-8000-000000000001',
-  '71000000-0000-4000-8000-000000000002',
+  '71000000-0000-4000-8000-000000000001',
   '20000000-0000-4000-8000-000000000002',
   repeat('b', 64),
   '_cloudexify-verify.tenant-b.example.test',
@@ -136,7 +136,7 @@ BEGIN
   END IF;
 
   SELECT app_private.verify_domain_claim(
-    '71000000-0000-4000-8000-000000000002',
+    '71000000-0000-4000-8000-000000000001',
     repeat('b', 64)
   ) INTO verified;
   IF verified THEN
