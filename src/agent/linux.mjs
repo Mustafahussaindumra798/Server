@@ -1,6 +1,6 @@
 import os from "node:os";
 import { existsSync } from "node:fs";
-import { readFile, statfs } from "node:fs/promises";
+import { access, readFile, statfs } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -60,17 +60,34 @@ export async function detectPodmanRuntime({
   };
 }
 
-export async function getCapabilities(identity = getLinuxIdentity(), { podmanProbe = detectPodmanRuntime } = {}) {
+export async function detectCosignVerifier({
+  runCommand = execFileAsync,
+  trustKeyPath = "/etc/cloudexify/trust.pub",
+  accessFile = access
+} = {}) {
+  try {
+    await runCommand("cosign", ["version"], { timeout: 3000, maxBuffer: 16 * 1024, windowsHide: true });
+    await accessFile(trustKeyPath);
+    return { available: true, ready: true, trust_key_configured: true };
+  } catch {
+    return { available: false, ready: false, trust_key_configured: false, reason: "cosign_or_trust_key_unavailable" };
+  }
+}
+
+export async function getCapabilities(identity = getLinuxIdentity(), { podmanProbe = detectPodmanRuntime, cosignProbe = detectCosignVerifier } = {}) {
   const podman = identity.platform === "linux"
     ? await podmanProbe()
     : { available: false, ready: false, reason: "platform_not_qualified" };
+  const cosign = identity.platform === "linux"
+    ? await cosignProbe()
+    : { available: false, ready: false, trust_key_configured: false, reason: "platform_not_qualified" };
   return {
     agent_protocol: 1,
     diagnostics: ["probe", "collect_metrics"],
     service_manager: identity.platform === "linux" && existsSync("/run/systemd/system") ? "systemd" : null,
     environment: identity.environment,
     container_runtime: podman.ready ? "podman-rootless" : null,
-    runtime_probe: { podman },
+    runtime_probe: { podman, cosign },
     workload_execution: false
   };
 }
