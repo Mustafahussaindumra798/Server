@@ -187,7 +187,7 @@ test("running deployment requires fresh telemetry and sufficient reserved capaci
   const api = await startApi("operator"); t.after(api.close);
   const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
     method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
-    body: JSON.stringify({ application_id: appId, desired_state: "running" })
+    body: JSON.stringify({ application_id: appId, desired_state: "running", image_digest: "registry.example.com/cloudexify/demo@sha256:" + "a".repeat(64), container_port: 8080 })
   });
   assert.equal(response.status, 201);
   const placement = api.pool.calls.find((call) => call.sql.includes("capacity_admitted") || call.sql.includes("cpu_millicores") && call.sql.includes("FOR UPDATE OF node SKIP LOCKED"));
@@ -213,7 +213,7 @@ test("running deployment is rejected when no node has enough capacity", async (t
   };
   const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
     method: "POST", headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
-    body: JSON.stringify({ application_id: appId, desired_state: "running" })
+    body: JSON.stringify({ application_id: appId, desired_state: "running", image_digest: "registry.example.com/cloudexify/demo@sha256:" + "a".repeat(64), container_port: 8080 })
   });
   assert.equal(response.status, 409);
   assert.equal(api.pool.calls.some((call) => call.sql.startsWith("INSERT INTO deployments")), false);
@@ -235,7 +235,7 @@ test("operator can request a deployment and it is audited", async (t) => {
   const response = await fetch(api.origin + "/api/v1/tenants/" + tenantId + "/deployments", {
     method: "POST",
     headers: { authorization: "Bearer " + makeToken(), "content-type": "application/json" },
-    body: JSON.stringify({ application_id: appId, desired_state: "running" })
+    body: JSON.stringify({ application_id: appId, desired_state: "running", image_digest: "registry.example.com/cloudexify/demo@sha256:" + "a".repeat(64), container_port: 8080 })
   });
   assert.equal(response.status, 201);
   assert.equal((await response.json()).deployment.status, "scheduled");
