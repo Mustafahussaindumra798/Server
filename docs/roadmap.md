@@ -197,4 +197,5 @@
 - [ ] Upgrade strategy and credential rotation
 
 ## Release gates
+- [x] Configure per-workflow, per-branch GitHub Actions concurrency so newer main validations supersede stale queued runs
 No production claim until automated tests, threat model, restore test, failure testing and documented support matrix pass. Android/Termux nodes remain best-effort until qualified.
