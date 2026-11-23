@@ -123,6 +123,7 @@
 - [ ] Implement signed artifact provenance and content verification (runtime currently requires immutable OCI SHA-256 digests but does not verify signatures)
 - [x] Implement rootless Podman workload adapter with immutable digest validation, rootless/cgroup-v2 gate, CPU/memory/PID limits, read-only rootfs, dropped capabilities, no-new-privileges and loopback-only port publication (CI runs #267–272 passed)
 - [x] Agent dispatch for typed deploy/stop/restart jobs; rejects malformed payloads and never accepts arbitrary shell commands (CI runs #271–272 passed)
+- [x] Workload jobs are terminally rejected on unqualified nodes instead of retrying forever (CI run #277 passed)
 - [ ] Connect deployment creation to authorized, idempotent deploy/stop/restart job orchestration and deployment status transitions
 - [ ] Add durable runtime reconciliation after node restart and expired job leases
 - [ ] Add application health checks, revision health gates and rollback policy
