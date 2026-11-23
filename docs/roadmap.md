@@ -201,7 +201,7 @@
 - [x] Opt-in HTTPS hostname routing, TLS termination and reverse proxy implementation (public listener disabled by default; manual certificate only)
 - [ ] Production DNS/TLS rollout, multi-node service discovery/failover and public ingress qualification
 - [x] Structured logs, metrics, alert thresholds and operational health endpoints (docs/operations/alerts.md, src/logger.mjs, /api/health?detail=full)
-- [ ] Upgrade strategy and credential rotation
+- [x] Upgrade strategy, credential rotation and disaster recovery (docs/operations/upgrade-rollback.md, docs/operations/credential-rotation.md, docs/operations/disaster-recovery.md)
 
 ## Release gates
 - [x] Configure per-workflow, per-branch GitHub Actions concurrency so newer main validations supersede stale queued runs
