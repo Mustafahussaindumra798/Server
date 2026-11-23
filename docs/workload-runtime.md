@@ -6,7 +6,7 @@ The first runtime adapter uses rootless Podman on qualified Linux nodes only. An
 
 ## Deployment request and control-plane orchestration
 
-The authenticated deployment API now requires an immutable OCI digest and a TCP container port for running revisions. It inserts the deployment revision and its typed `deploy` job in the same tenant-scoped database transaction. Generic user-created jobs remain diagnostic-only. Migration 009 adds artifact metadata and deployment-job reconciliation; migration 010 adds health-check configuration and requires a verified `workload_healthy` result before marking a revision healthy; migration 011 adds stop/restart lifecycle states and job reconciliation.
+The authenticated deployment API now requires an immutable OCI digest and a TCP container port for running revisions. It inserts the deployment revision and its typed `deploy` job in the same tenant-scoped database transaction. Generic user-created jobs remain diagnostic-only. Migration 009 adds artifact metadata and deployment-job reconciliation; migration 010 adds health-check configuration and requires a verified `workload_healthy` result before marking a revision healthy; migration 011 adds stop/restart lifecycle states and job reconciliation; migration 012 adds authenticated startup reconciliation for healthy and interrupted lifecycle revisions.
 
 A successful container-start acknowledgement deliberately leaves the revision in `deploying`. The node then probes the configured HTTP path over its loopback-only port mapping. Only a 2xx response produces the `workload_healthy` result code; the database marks the revision `healthy` only when it sees that exact result code. A succeeded job without verified health is marked failed.
 
@@ -55,7 +55,7 @@ The adapter verifies image signatures with Cosign, then invokes Podman with an a
 This adapter is a tested execution primitive, not yet a complete public deployment path. Do not set `workload_execution: true` or mark a deployment `healthy` until all of the following are implemented and tested:
 
 1. Control-plane job creation/authorization and deployment-to-job state transitions (implemented; migrations 009–011).
-2. Durable runtime reconciliation after node restart and expired job leases.
+2. Periodic runtime drift detection and recovery for workloads that fail after a successful restart reconciliation.
 3. Automatic rollback to the previous healthy revision after terminal failure.
 4. Reverse-proxy ingress, TLS, host routing and safe port lifecycle.
 5. Per-container disk quota or a documented enforced storage boundary.
