@@ -239,3 +239,47 @@ test("node tunnel stops retrying when the gateway rejects its certificate identi
   assert.ok(states.includes("stopped"));
   controller.abort();
 });
+
+test("gateway parses multiple bounded route frames in one large TCP chunk", async () => {
+  let connectionHandler;
+  const received = [];
+  class FakeServer extends EventEmitter {}
+  class FakeSocket extends EventEmitter {
+    constructor() {
+      super();
+      this.authorized = true;
+      this.alpnProtocol = GATEWAY_ALPN;
+      this.destroyed = false;
+      this.writes = [];
+    }
+    getPeerCertificate() {
+      return { fingerprint256: fingerprint.match(/.{2}/g).join(":"), serialNumber: "01AB", subject: { CN: nodeId } };
+    }
+    write(frame) { this.writes.push(JSON.parse(String(frame))); return true; }
+    end() { this.destroyed = true; this.emit("close"); }
+    destroy() { this.destroyed = true; this.emit("close"); }
+  }
+  createNodeTunnelServer({
+    tlsOptions: { key: "private", cert: "public", ca: "client-ca" },
+    authorizeCertificate: async () => true,
+    pingIntervalMs: 10000,
+    authorizationRecheckMs: 10000,
+    onRouteMessage: ({ message }) => { received.push(message.stream_id); return true; },
+    createServer(_options, callback) { connectionHandler = callback; return new FakeServer(); }
+  });
+  const socket = new FakeSocket();
+  connectionHandler(socket);
+  socket.emit("data", Buffer.from(JSON.stringify({ type: "hello", protocol: 1, node_id: nodeId }) + "\\n"));
+  for (let i = 0; i < 100 && !socket.writes.some((m) => m.type === "welcome"); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  assert.ok(socket.writes.some((m) => m.type === "welcome"));
+  const frameA = JSON.stringify({ type: "route_data", stream_id: "streamA", data: Buffer.alloc(24 * 1024, 1).toString("base64") }) + "\\n";
+  const frameB = JSON.stringify({ type: "route_data", stream_id: "streamB", data: Buffer.alloc(24 * 1024, 2).toString("base64") }) + "\\n";
+  assert.ok(Buffer.byteLength(frameA) < 36 * 1024);
+  assert.ok(Buffer.byteLength(frameB) < 36 * 1024);
+  assert.ok(Buffer.byteLength(frameA + frameB) > 36 * 1024);
+  socket.emit("data", Buffer.from(frameA + frameB));
+  assert.deepEqual(received, ["streamA", "streamB"]);
+  socket.destroy();
+});
